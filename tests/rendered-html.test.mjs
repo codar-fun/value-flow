@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function render() {
@@ -27,12 +27,14 @@ test("renders the community currency demo shell", async () => {
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });
 
-test("keeps the confirmed product flows and visual language in source", async () => {
-  const [page, data, css, readme, dataDoc, designDoc] = await Promise.all([
+test("keeps the confirmed product flows, handoff facts, and visual language in source", async () => {
+  const [page, data, css, readme, handoff, productDoc, dataDoc, designDoc] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/demo-data.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../README.md", import.meta.url), "utf8"),
+    readFile(new URL("../docs/开发交付说明.md", import.meta.url), "utf8"),
+    readFile(new URL("../docs/产品需求文档：运营流程.md", import.meta.url), "utf8"),
     readFile(new URL("../docs/静态演示数据库.md", import.meta.url), "utf8"),
     readFile(new URL("../docs/静态演示设计系统.md", import.meta.url), "utf8"),
   ]);
@@ -77,7 +79,40 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(css, /brand-mini/);
   assert.match(css, /create-progress/);
   assert.match(css, /circle-draft-preview/);
+  assert.match(readme, /开发接手总入口/);
   assert.match(readme, /三个实例，不是三个产品/);
+  assert.match(handoff, /当前只有一个页面路由/);
+  assert.match(handoff, /首页动态引用 \| 7/);
+  assert.match(handoff, /不会把新圈写入 `demoDb`/);
+  assert.match(handoff, /组件内条件过滤，不能视为安全机制/);
+  assert.match(productDoc, /仅当事人.*不进入圈内公共动态/);
+  assert.match(productDoc, /整体概念页/);
+  assert.match(productDoc, /创建圈子页/);
   assert.match(dataDoc, /完整虚构好人卡/);
+  assert.match(dataDoc, /静态策展层/);
   assert.match(designDoc, /FLOW CIRCLE/);
+});
+
+test("keeps local links in the developer handoff path valid", async () => {
+  const documents = [
+    new URL("../README.md", import.meta.url),
+    new URL("../docs/开发交付说明.md", import.meta.url),
+    new URL("../docs/产品需求文档：运营流程.md", import.meta.url),
+    new URL("../docs/静态演示数据库.md", import.meta.url),
+    new URL("../docs/静态演示设计系统.md", import.meta.url),
+  ];
+
+  for (const documentUrl of documents) {
+    const markdown = await readFile(documentUrl, "utf8");
+    const links = [...markdown.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)].map((match) => match[1]);
+
+    for (const link of links) {
+      if (/^(?:https?:|mailto:|#)/i.test(link)) continue;
+      const [relativePath] = decodeURIComponent(link).split("#");
+      await assert.doesNotReject(
+        access(new URL(relativePath, documentUrl)),
+        `Missing local link ${link} in ${documentUrl.pathname}`,
+      );
+    }
+  }
 });
