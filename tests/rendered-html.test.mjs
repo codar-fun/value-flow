@@ -41,8 +41,16 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /我想要/);
   assert.match(page, /我可以给/);
   assert.match(page, /好人卡/);
+  assert.match(page, /FLOW CIRCLE/);
+  assert.match(page, /圈子介绍/);
+  assert.match(page, /全部成员/);
+  assert.match(page, /查看规则/);
+  assert.match(page, /邀请成员/);
+  assert.match(page, /DiscoverFilter/);
+  assert.doesNotMatch(page, /LIU DONG/);
   assert.match(css, /radial-gradient/);
   assert.match(css, /--yellow/);
+  assert.match(css, /face-spike/);
+  assert.match(css, /detail-hero/);
   assert.match(readme, /三个实例，不是三个产品/);
 });
-
