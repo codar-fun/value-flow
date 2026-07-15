@@ -34,7 +34,13 @@ const draftCopy: Record<ComposerType, { spoken: string; title: string; detail: s
 };
 
 function Character({ text, color = "yellow", small = false }: { text: string; color?: string; small?: boolean }) {
-  return <span className={`character character-${color} ${small ? "character-small" : ""}`} aria-hidden="true">{text}</span>;
+  return (
+    <span className={`character character-${color} ${small ? "character-small" : ""}`} aria-hidden="true">
+      <i className="character-hair" />
+      <i className="character-face">•‿•</i>
+      <b>{text}</b>
+    </span>
+  );
 }
 
 function Pill({ children, color = "cream" }: { children: React.ReactNode; color?: string }) {

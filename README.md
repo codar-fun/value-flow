@@ -1,98 +1,104 @@
-# vinext-starter
+# 社区货币 /「流动圈」静态原型
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+> 当前阶段：运营需求已经完成第一轮确认；移动端优先的静态 Demo 已完成。  
+> 当前不做：真实后端、数据库、微信授权、真实语音识别和真实数据保存。  
+> “流动圈”“泡泡助手”均为 Demo 暂名，不是最终命名。
 
-## Prerequisites
+## 新聊天从这里开始
 
-- Node.js `>=22.13.0`
+按下面顺序阅读即可接手，不需要依赖旧聊天记录：
 
-## Quick Start
+1. [`docs/替代货币的设计理念.md`](docs/替代货币的设计理念.md)：为什么做、礼物经济/好人卡/互助额度如何区分。
+2. [`docs/产品需求文档：运营流程与静态Demo.md`](docs/产品需求文档：运营流程与静态Demo.md)：**当前产品与运营需求的主要事实来源**。
+3. [`docs/references/补充调研：制度缺口、试验边界与下一轮搜索.md`](docs/references/补充调研：制度缺口、试验边界与下一轮搜索.md)：隐私、安全、治理、退出和合规边界。
+4. [`app/page.tsx`](app/page.tsx) 与 [`app/globals.css`](app/globals.css)：当前静态 Demo。
+
+[`docs/早期开发需求探索.md`](docs/早期开发需求探索.md) 保留早期思路和问题清单，但其中与当前产品需求冲突的内容，以第 2 项为准。
+
+## 一句话产品定义
+
+现实中的协商仍发生在微信或线下；产品只提供一层轻量的社区记忆：让人可以用一句话记录已经完成的互助、发布“我想要/我可以给”、发送好人卡，并在多个独立圈子之间携带自己的社区身份。
+
+## 已确认的核心决定
+
+- 每个人都可以自由创建多个圈子，也可以加入多个圈子。
+- 圈子的成员、货币、余额和参考物彼此独立；第一版不做跨圈兑换。
+- 好人卡跟着个人跨圈公开，但不能兑换，也不产生债务。
+- “我想要 / 我可以给”使用同一个发布入口，可选择跨圈展示。
+- 同圈成员可进入个人主页并点击查看微信号；产品不做站内聊天。
+- 交易只记录已经完成的互助。
+- AI 生成草稿后，记录方单方确认即可立即入账；另一方之后可以修改或拒绝。
+- 圈内交易只有“公开”和“神秘记录”两个主要可见档位。
+- 种子期可通过邀请直接加入；扩大后可以切换成管理员审批。
+- 锚定物不是必填，可以有多个，由管理员根据社区讨论更新。
+- 三个示例圈只是俏也当前创建的三个实例，不是三个产品。
+
+## 当前 Demo
+
+私密预览地址：<https://liudong-circle-demo.helloworld-zoey.chatgpt.site>
+
+主要可点击内容：
+
+- 三个圈子之间切换；
+- “说一句”及交易、需要、提供、好人卡四种草稿；
+- 公开交易与神秘交易；
+- 发现页、圈子页、个人跨圈角色卡；
+- 成员联系方式；
+- 需要/提供分享图。
+
+## 视觉方向
+
+当前视觉参考：[`docs/references/visual/neo-brutalism-game-ui-reference.png`](docs/references/visual/neo-brutalism-game-ui-reference.png)
+
+方向关键词：
+
+- 奶油色手机界面置于黄色点阵世界；
+- 粗黑描边、圆角卡片、硬边阴影；
+- 黄色为主，粉、蓝、绿、珊瑚红作事件色；
+- 黑白线稿人物头像，成员像社区游戏角色；
+- 几何图形、地图节点和小型世界事件；
+- Agent 是社区伙伴，不是企业客服机器人；
+- 有游戏感，但没有贡献排行、签到、竞争和积分操控。
+
+## 本地运行
+
+需要 Node.js 22 或更新版本。
 
 ```bash
-npm install
-npm run dev
-npm run build
+pnpm install
+pnpm dev
 ```
 
-This starter does not use `wrangler.jsonc`.
+正式检查：
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+pnpm build
+pnpm lint
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+## 项目结构
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+```text
+社区货币/
+├─ README.md                    当前项目入口与交接说明
+├─ docs/                        理念、需求、研究资料和视觉参考
+├─ app/                         静态 Demo 页面与样式
+├─ public/                      公开静态资源
+├─ tests/                       静态页面基本检查
+├─ .openai/hosting.json         私密预览站点绑定
+└─ package.json                 Demo 运行与构建配置
+```
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+## 下一步仍然开放的问题
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+- 正式产品、好人卡、互助额度和 Agent 的命名；
+- 圈子页中动态、成员、规则与参考物的最终排序；
+- 电脑 dashboard 的详细内容；
+- 神秘交易是否需要“完全不留摘要”的第三种例外；
+- 接入微信小程序之前，哪些能力应先用手机网页验证；
+- 后端、身份、数据、隐私和纠错机制的技术实现方案。
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+## 给下一次聊天的推荐开场
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+> 请先完整阅读这个项目的 README、`docs/替代货币的设计理念.md`、`docs/产品需求文档：运营流程与静态Demo.md` 和制度边界补充调研。当前只完成了运营需求与静态 Demo，不要把假数据当成后端方案。先告诉我你对当前产品流程和开放问题的理解，再继续修改。
 
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
