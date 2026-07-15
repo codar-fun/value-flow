@@ -28,15 +28,21 @@ test("renders the community currency demo shell", async () => {
 });
 
 test("keeps the confirmed product flows and visual language in source", async () => {
-  const [page, css, readme] = await Promise.all([
+  const [page, data, css, readme, dataDoc, designDoc] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/demo-data.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../README.md", import.meta.url), "utf8"),
+    readFile(new URL("../docs/静态演示数据库.md", import.meta.url), "utf8"),
+    readFile(new URL("../docs/静态演示设计系统.md", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /俏也交换圈/);
-  assert.match(page, /做人共学/);
-  assert.match(page, /龙潭生活营地/);
+  assert.match(data, /俏也交换圈/);
+  assert.match(data, /做人共学/);
+  assert.match(data, /龙潭生活营地/);
+  assert.match(data, /goodCards/);
+  assert.match(data, /transactions/);
+  assert.match(data, /listings/);
   assert.match(page, /记一笔/);
   assert.match(page, /我想要/);
   assert.match(page, /我可以给/);
@@ -52,5 +58,8 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(css, /--yellow/);
   assert.match(css, /face-spike/);
   assert.match(css, /detail-hero/);
+  assert.match(css, /profile-tabs/);
   assert.match(readme, /三个实例，不是三个产品/);
+  assert.match(dataDoc, /完整虚构好人卡/);
+  assert.match(designDoc, /FLOW CIRCLE/);
 });

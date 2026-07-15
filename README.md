@@ -11,7 +11,9 @@
 1. [`docs/替代货币的设计理念.md`](docs/替代货币的设计理念.md)：为什么做、礼物经济/好人卡/互助额度如何区分。
 2. [`docs/产品需求文档：运营流程.md`](docs/产品需求文档：运营流程.md)：**当前产品与运营需求的主要事实来源**。
 3. [`docs/references/补充调研：制度缺口、试验边界与下一轮搜索.md`](docs/references/补充调研：制度缺口、试验边界与下一轮搜索.md)：隐私、安全、治理、退出和合规边界。
-4. [`app/page.tsx`](app/page.tsx) 与 [`app/globals.css`](app/globals.css)：当前静态 Demo。
+4. [`docs/静态演示数据库.md`](docs/静态演示数据库.md)：虚构数据结构、完整样例数据与页面映射。
+5. [`docs/静态演示设计系统.md`](docs/静态演示设计系统.md)：视觉变量、组件、响应式和交互规范。
+6. [`app/demo-data.ts`](app/demo-data.ts)、[`app/page.tsx`](app/page.tsx) 与 [`app/globals.css`](app/globals.css)：当前静态 Demo 的运行事实来源。
 
 [`docs/早期开发需求探索.md`](docs/早期开发需求探索.md) 保留早期思路和问题清单，但其中与当前产品需求冲突的内容，以第 2 项为准。
 
