@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { demoDb, type AvatarVariant, type Circle, type Color, type Member } from "./demo-data";
 
-type View = "feed" | "discover" | "circle" | "me";
+type View = "feed" | "discover" | "circle" | "me" | "about";
 type ComposerType = "record" | "need" | "offer" | "card";
 type FeedFilter = "all" | "trade" | "need" | "offer" | "card";
 type DiscoverFilter = "all" | "need" | "offer" | "nearby";
@@ -162,7 +162,7 @@ export default function Home() {
 
   return <main className="world-shell">
     <aside className="circle-dock" aria-label="我的圈子地图">
-      <div className="brand-mark"><span>流动圈</span><b>FLOW CIRCLE</b></div>
+      <button className={`brand-mark ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流动圈</span><b>FLOW CIRCLE · 了解我们 →</b></button>
       <div className="dock-heading"><span>我的地图</span><b>{String(circles.length).padStart(2,"0")}</b></div>
       <button className={`dock-all ${feedCircleId === "all" && view === "feed" ? "active" : ""}`} onClick={showAllCircles}><span>◎</span><b>全部圈子动态</b><strong>{posts.length}</strong></button>
       <div className="dock-list">{circles.map((item) => { const account = accountFor("qiaoye", item.id); return <button key={item.id} className={`dock-circle dock-${item.color} ${feedCircleId === item.id ? "active" : ""}`} onClick={() => selectCircle(item.id)}><Character text={item.short} color={item.color} variant={item.id === "qiao" ? "wave" : item.id === "human" ? "crop" : "leaf"} small/><span><b>{item.name}</b><small>{item.role}</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div>
@@ -171,10 +171,11 @@ export default function Home() {
     </aside>
 
     <section className="phone-stage">
-      <div className="app-frame">
-        <header className="topbar"><div><p>我的圈子动态</p><h1>早上好，俏也！</h1></div><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById("qiaoye")}/></button></header>
-        <nav className="circle-switcher" aria-label="切换动态范围"><button className={`all-switch ${feedCircleId === "all" && view === "feed" ? "selected" : ""}`} onClick={showAllCircles}><span className="circle-dot dot-all"/><span>全部圈子</span><b>{posts.length}</b></button>{circles.map((item) => { const account = accountFor("qiaoye", item.id); return <button key={item.id} className={feedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><span className={`circle-dot dot-${item.color}`}/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>
+      <div className={`app-frame ${view === "about" ? "about-open" : ""}`}>
+        <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流</span><i/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : "早上好，俏也！"}</h1></div><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById("qiaoye")}/></button></header>
+        {view !== "about" && <nav className="circle-switcher" aria-label="切换动态范围"><button className={`all-switch ${feedCircleId === "all" && view === "feed" ? "selected" : ""}`} onClick={showAllCircles}><span className="circle-dot dot-all"/><span>全部圈子</span><b>{posts.length}</b></button>{circles.map((item) => { const account = accountFor("qiaoye", item.id); return <button key={item.id} className={feedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><span className={`circle-dot dot-${item.color}`}/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>}
         <div className="view-content">
+          {view === "about" && <AboutView onExplore={showAllCircles} onCreate={() => setOverlay("create")} onCircle={(id) => selectCircle(id, "circle")}/>}
           {view === "feed" && <FeedView activeCircle={activeCircle} activeAccount={activeAccount} isAllCircles={feedCircleId === "all"} posts={feedPosts} filter={feedFilter} onSpeak={openComposer} onCircle={() => setView("circle")} onMe={() => setView("me")} onProfile={openProfile} onShare={() => setOverlay("share")} onFilter={() => setOverlay("feedFilter")} onPost={openPost}/>}
           {view === "discover" && <DiscoverView posts={discoverPosts} filter={discoverFilter} setFilter={setDiscoverFilter} onSpeak={openComposer} onProfile={openProfile} onShare={() => setOverlay("share")} onPost={openPost}/>}
           {view === "circle" && <CircleView circle={activeCircle} account={activeAccount} posts={posts.filter((post) => post.circleId === activeCircle.id)} onSpeak={openComposer} onProfile={openProfile} onShare={() => setOverlay("share")} onPost={openPost} onIntro={() => setOverlay("intro")} onRules={() => setOverlay("rules")} onMembers={() => setOverlay("members")} onInvite={() => setOverlay("invite")}/>}
@@ -209,6 +210,52 @@ export default function Home() {
     {overlay === "settings" && <SettingsSheet onClose={() => setOverlay(null)} onNotice={flash}/>}
     {toast && <div className="toast" role="status">{toast}</div>}
   </main>;
+}
+
+function AboutView({ onExplore, onCreate, onCircle }: { onExplore: () => void; onCreate: () => void; onCircle: (id: string) => void }) {
+  const concepts = [
+    { number: "01", title: "圈子", color: "pink", text: "每个圈子都有独立的成员、规则、参考物和互助额度。加入多个圈子，也不会把不同关系混成一笔账。" },
+    { number: "02", title: "互助额度", color: "yellow", text: "只记录已经完成的互助。正负余额是社区记忆，不是钱、信用分或贡献排名。" },
+    { number: "03", title: "需要 / 提供", color: "green", text: "让大家看见彼此正在寻找什么、又能给出什么。发布不会改变余额，答应也从来不是义务。" },
+    { number: "04", title: "好人卡", color: "blue", text: "把一段值得记住的善意留给一个人。它可以跨圈展示，但没有金额，不产生债务，也不能兑换。" },
+  ];
+  const steps = [
+    ["先在真实关系里发生", "聊天、协商和确认仍在微信或线下。流动圈不取代人与人的判断。"],
+    ["发生之后，说一句", "告诉泡泡助手发生了什么，它会整理成一份可检查、可修改的草稿。"],
+    ["确认后，留下一层记忆", "记录进入对应圈子；另一方仍可修改或拒绝，敏感互助也可以不记录。"],
+  ];
+  return <div className="about-page">
+    <section className="about-hero">
+      <div className="about-orbit orbit-one"/><div className="about-orbit orbit-two"/><div className="about-grid-mark"/>
+      <Pill color="cream">FLOW CIRCLE · 流动圈</Pill>
+      <h2>让帮助被记得，<br/>但不让数字定义关系。</h2>
+      <p>现实中的协商仍在微信或线下；流动圈只提供一层轻量的社区记忆，让互助、需要、能力和感谢可以继续流动。</p>
+      <div className="about-actions"><button className="about-primary" onClick={onExplore}>看看圈里正在发生什么 →</button><button onClick={onCreate}>＋ 创建一个圈子</button></div>
+    </section>
+
+    <section className="about-section">
+      <SectionTitle eyebrow="FOUR DIFFERENT THINGS" title="四件事，各自有边界"/>
+      <div className="concept-grid">{concepts.map((item) => <article key={item.number} className={`concept-card concept-${item.color}`}><span>{item.number}</span><h3>{item.title}</h3><p>{item.text}</p></article>)}</div>
+    </section>
+
+    <section className="about-section flow-section">
+      <SectionTitle eyebrow="HOW IT FLOWS" title="一次互助，怎么流动"/>
+      <div className="flow-steps">{steps.map(([title, text], index) => <article key={title}><b>{String(index + 1).padStart(2,"0")}</b><div><h3>{title}</h3><p>{text}</p></div>{index < steps.length - 1 && <span aria-hidden="true">↓</span>}</article>)}</div>
+    </section>
+
+    <section className="about-section">
+      <SectionTitle eyebrow="THREE REAL CONTEXTS" title="同一个工具，长在不同关系里"/>
+      <p className="about-lead">下面是俏也已经加入的三个示例圈子。它们不是三种产品，而是三段各自独立的社区关系。</p>
+      <div className="about-circles">{circles.map((circle, index) => <button key={circle.id} className={`about-circle about-circle-${circle.color}`} onClick={() => onCircle(circle.id)}><span className="about-circle-number">0{index + 1}</span><Character text={circle.short} color={circle.color} variant={circle.id === "qiao" ? "wave" : circle.id === "human" ? "crop" : "leaf"} small/><div><small>{circle.location}</small><h3>{circle.name}</h3><p>{circle.tagline}</p></div><b>进入圈子 →</b></button>)}</div>
+    </section>
+
+    <section className="about-boundaries">
+      <div><span>KEEP IT HUMAN</span><h2>有些事，流动圈明确不做。</h2></div>
+      <ul><li>不与人民币兑换，也不是支付工具</li><li>不做贡献榜、信用分或道德排名</li><li>不要求每次帮助都留下记录</li><li>不把不同圈子的额度互相兑换</li><li>可以开口，也可以拒绝、暂停或离开</li><li>敏感互助可以神秘记录，或者完全不记录</li></ul>
+    </section>
+
+    <blockquote className="about-manifesto"><span>“</span><p>数字是影子，关系是实体。<br/>没有记录的善意，仍然成立。</p><b>流动圈 · FLOW CIRCLE</b></blockquote>
+  </div>;
 }
 
 function AgentHero({ onSpeak }: { onSpeak: (intent?: ComposerType) => void }) {
