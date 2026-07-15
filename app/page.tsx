@@ -3,12 +3,12 @@
 import { useMemo, useState } from "react";
 import { demoDb, type AvatarVariant, type Circle, type Color, type Member } from "./demo-data";
 
-type View = "feed" | "discover" | "circle" | "me" | "about";
+type View = "feed" | "discover" | "circle" | "me" | "about" | "create";
 type ComposerType = "record" | "need" | "offer" | "card";
 type FeedFilter = "all" | "trade" | "need" | "offer" | "card";
 type DiscoverFilter = "all" | "need" | "offer" | "nearby";
 type ProfileTab = "cards" | "listings" | "transactions";
-type Overlay = "share" | "profile" | "intro" | "rules" | "members" | "invite" | "create" | "feedFilter" | "post" | "settings" | null;
+type Overlay = "share" | "profile" | "intro" | "rules" | "members" | "invite" | "feedFilter" | "post" | "settings" | null;
 
 type Post = {
   id: number;
@@ -147,6 +147,10 @@ export default function Home() {
     setFeedCircleId("all"); setView("feed");
   }
 
+  function openCreateCircle() {
+    setView("create");
+  }
+
   function openProfile(id?: string, tab: ProfileTab = "cards") {
     setSelectedMemberId(id ?? "ashu"); setProfileTab(tab); setOverlay("profile");
   }
@@ -166,20 +170,21 @@ export default function Home() {
       <div className="dock-heading"><span>我的地图</span><b>{String(circles.length).padStart(2,"0")}</b></div>
       <button className={`dock-all ${feedCircleId === "all" && view === "feed" ? "active" : ""}`} onClick={showAllCircles}><span>◎</span><b>全部圈子动态</b><strong>{posts.length}</strong></button>
       <div className="dock-list">{circles.map((item) => { const account = accountFor("qiaoye", item.id); return <button key={item.id} className={`dock-circle dock-${item.color} ${feedCircleId === item.id ? "active" : ""}`} onClick={() => selectCircle(item.id)}><Character text={item.short} color={item.color} variant={item.id === "qiao" ? "wave" : item.id === "human" ? "crop" : "leaf"} small/><span><b>{item.name}</b><small>{item.role}</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div>
-      <button className="new-circle" onClick={() => setOverlay("create")}><b>＋</b><span>创建新圈子</span></button>
+      <button className="new-circle" onClick={openCreateCircle}><b>＋</b><span>创建新圈子</span></button>
       <p className="dock-note">三个圈子只是俏也加入的三个社区。每个圈子都有自己的成员、规则和互助额度。</p>
     </aside>
 
     <section className="phone-stage">
-      <div className={`app-frame ${view === "about" ? "about-open" : ""}`}>
-        <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流</span><i/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : "早上好，俏也！"}</h1></div><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById("qiaoye")}/></button></header>
-        {view !== "about" && <nav className="circle-switcher" aria-label="切换动态范围"><button className={`all-switch ${feedCircleId === "all" && view === "feed" ? "selected" : ""}`} onClick={showAllCircles}><span className="circle-dot dot-all"/><span>全部圈子</span><b>{posts.length}</b></button>{circles.map((item) => { const account = accountFor("qiaoye", item.id); return <button key={item.id} className={feedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><span className={`circle-dot dot-${item.color}`}/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>}
+      <div className={`app-frame ${view === "about" || view === "create" ? "about-open" : ""}`}>
+        <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流</span><i/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : view === "create" ? "NEW CIRCLE · 创建向导" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : view === "create" ? "创建新圈子" : "早上好，俏也！"}</h1></div><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById("qiaoye")}/></button></header>
+        {view !== "about" && view !== "create" && <nav className="circle-switcher" aria-label="切换动态范围"><button className={`all-switch ${feedCircleId === "all" && view === "feed" ? "selected" : ""}`} onClick={showAllCircles}><span className="circle-dot dot-all"/><span>全部圈子</span><b>{posts.length}</b></button>{circles.map((item) => { const account = accountFor("qiaoye", item.id); return <button key={item.id} className={feedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><span className={`circle-dot dot-${item.color}`}/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>}
         <div className="view-content">
-          {view === "about" && <AboutView onExplore={showAllCircles} onCreate={() => setOverlay("create")} onCircle={(id) => selectCircle(id, "circle")}/>}
+          {view === "about" && <AboutView onExplore={showAllCircles} onCreate={openCreateCircle} onCircle={(id) => selectCircle(id, "circle")}/>}
+          {view === "create" && <CreateCircleView onExit={() => setView("me")} onDone={(name) => flash(`${name}的草稿已保存（静态演示）`)}/>}
           {view === "feed" && <FeedView activeCircle={activeCircle} activeAccount={activeAccount} isAllCircles={feedCircleId === "all"} posts={feedPosts} filter={feedFilter} onSpeak={openComposer} onCircle={() => setView("circle")} onMe={() => setView("me")} onProfile={openProfile} onShare={() => setOverlay("share")} onFilter={() => setOverlay("feedFilter")} onPost={openPost}/>}
           {view === "discover" && <DiscoverView posts={discoverPosts} filter={discoverFilter} setFilter={setDiscoverFilter} onSpeak={openComposer} onProfile={openProfile} onShare={() => setOverlay("share")} onPost={openPost}/>}
           {view === "circle" && <CircleView circle={activeCircle} account={activeAccount} posts={posts.filter((post) => post.circleId === activeCircle.id)} onSpeak={openComposer} onProfile={openProfile} onShare={() => setOverlay("share")} onPost={openPost} onIntro={() => setOverlay("intro")} onRules={() => setOverlay("rules")} onMembers={() => setOverlay("members")} onInvite={() => setOverlay("invite")}/>}
-          {view === "me" && <MeView onShare={() => setOverlay("share")} onCard={() => openComposer("card")} onCreate={() => setOverlay("create")} onSettings={() => setOverlay("settings")} onCircle={(id) => selectCircle(id, "circle")} onArchive={(tab) => openProfile("qiaoye", tab)}/>}
+          {view === "me" && <MeView onShare={() => setOverlay("share")} onCard={() => openComposer("card")} onCreate={openCreateCircle} onSettings={() => setOverlay("settings")} onCircle={(id) => selectCircle(id, "circle")} onArchive={(tab) => openProfile("qiaoye", tab)}/>}
         </div>
         <nav className="bottom-nav" aria-label="主要导航">
           <button className={view === "feed" ? "active" : ""} onClick={() => setView("feed")}><span className="nav-icon">⌂</span><small>动态</small></button>
@@ -204,7 +209,6 @@ export default function Home() {
     {overlay === "rules" && <RulesSheet circle={activeCircle} onClose={() => setOverlay(null)}/>}
     {overlay === "members" && <MembersSheet circle={activeCircle} onProfile={openProfile} onInvite={() => setOverlay("invite")} onClose={() => setOverlay(null)}/>}
     {overlay === "invite" && <InviteSheet circle={activeCircle} onClose={() => setOverlay(null)} onNotice={flash}/>}
-    {overlay === "create" && <CreateCircleSheet onClose={() => setOverlay(null)} onDone={() => { setOverlay(null); flash("新圈草稿已保存，这是静态演示，不会真的创建"); }}/>}
     {overlay === "feedFilter" && <FeedFilterSheet active={feedFilter} onSelect={(next) => { setFeedFilter(next); setOverlay(null); }} onClose={() => setOverlay(null)}/>}
     {overlay === "post" && <PostSheet post={selectedPost} onProfile={() => selectedPost.memberId && openProfile(selectedPost.memberId)} onShare={() => setOverlay("share")} onClose={() => setOverlay(null)}/>}
     {overlay === "settings" && <SettingsSheet onClose={() => setOverlay(null)} onNotice={flash}/>}
@@ -341,9 +345,44 @@ function InviteSheet({ circle, onClose, onNotice }: { circle: Circle; onClose: (
   return <Modal onClose={onClose} label={`邀请加入${circle.name}`}><div className="sheet-heading"><Pill color={circle.color}>{circle.joining}</Pill><h2>邀请一个认识的人，加入 {circle.name}</h2><p>{circle.invitation}</p></div><div className="invite-tabs"><button className={method === "link" ? "active" : ""} onClick={() => setMethod("link")}>邀请链接</button><button className={method === "poster" ? "active" : ""} onClick={() => setMethod("poster")}>微信邀请图</button></div>{method === "link" ? <div className="invite-link"><span>7 天有效 · 仅可使用 1 次</span><b>flow-circle.site/join/{circle.id}-7K2</b><button onClick={() => onNotice("邀请链接已复制（静态演示）")}>复制链接</button></div> : <div className={`mini-invite-poster hero-${circle.color}`}><div className={`camp-flag flag-${circle.color}`}>{circle.short}</div><span>来自俏也的邀请</span><h3>来 {circle.name}<br/>看看我们还能怎样互相帮助</h3><p>可以问，也可以拒绝。</p><div className="mini-code">▦</div></div>}<div className="invite-checklist"><b>受邀者会先看到</b><span>✓ 圈子介绍与运行方式</span><span>✓ 什么会被记录、谁能看见</span><span>✓ 可以拒绝具体请求，也可以退出</span></div><button className="primary-button" onClick={() => onNotice(method === "link" ? "邀请链接已发到微信（静态演示）" : "邀请图已准备好（静态演示）")}>{method === "link" ? "发到微信" : "保存邀请图"}</button></Modal>;
 }
 
-function CreateCircleSheet({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const [mode, setMode] = useState("direct");
-  return <Modal onClose={onClose} label="创建新圈子"><div className="sheet-heading"><Pill color="green">任何人都可以创建</Pill><h2>先为新营地写一张清楚的介绍</h2><p>圈子不是一种新产品，而是一个独立的成员、规则和互助额度边界。</p></div><div className="form-stack"><label><span>圈子名称</span><input defaultValue="周末手作营地"/></label><label><span>互助额度叫什么</span><input defaultValue="木屑"/></label><label><span>一句话介绍</span><textarea defaultValue="一起做东西，也一起把工具、经验和时间分享出来。"/></label></div><span className="form-label">新成员怎么加入</span><div className="choice-grid"><button className={mode === "direct" ? "active" : ""} onClick={() => setMode("direct")}><b>种子期</b><small>受邀后直接加入</small></button><button className={mode === "approval" ? "active" : ""} onClick={() => setMode("approval")}><b>扩大期</b><small>邀请后管理员审批</small></button></div><p className="soft-note">创建后仍可补充多个参考物、隐私边界和退出规则。</p><button className="primary-button" onClick={onDone}>保存圈子草稿</button></Modal>;
+function CreateCircleView({ onExit, onDone }: { onExit: () => void; onDone: (name: string) => void }) {
+  const [step, setStep] = useState(1);
+  const [saved, setSaved] = useState(false);
+  const [name, setName] = useState("周末手作营地");
+  const [short, setShort] = useState("作");
+  const [currency, setCurrency] = useState("木屑");
+  const [tagline, setTagline] = useState("一起做东西，也一起把工具、经验和时间分享出来。");
+  const [scene, setScene] = useState("friends");
+  const [joining, setJoining] = useState("direct");
+  const [visibility, setVisibility] = useState("public");
+  const [needs, setNeeds] = useState(true);
+  const [cards, setCards] = useState(true);
+  const [mystery, setMystery] = useState(true);
+  const [allowExit, setAllowExit] = useState(true);
+  const [referenceName, setReferenceName] = useState("一小时手作协作");
+  const [referenceValue, setReferenceValue] = useState("约 5 木屑");
+  const steps = ["圈子身份", "互助设置", "成员与边界", "预览确认"];
+  const sceneLabels: Record<string,string> = { friends: "熟人邀请", learning: "共学小组", place: "线下社区" };
+
+  if (saved) return <section className="create-success"><div className="success-burst">✓</div><Pill color="green">草稿已保存 · STATIC DEMO</Pill><h2>{name}<br/>准备好了。</h2><p>这个静态演示不会真的建立成员账户或发送邀请。正式产品中，草稿会先进入管理员检查，再开放邀请链接。</p><div className="created-passport"><Character text={short || "圈"} color="green" variant="wave"/><div><span>新圈草稿</span><h3>{name}</h3><p>{currency} · {sceneLabels[scene]} · {joining === "direct" ? "受邀直接加入" : "管理员审批"}</p></div><b>草稿</b></div><div className="create-actions"><button className="secondary-button" onClick={() => { setSaved(false); setStep(4); }}>返回修改</button><button className="primary-button" onClick={onExit}>回到我的圈子</button></div></section>;
+
+  return <section className="create-page">
+    <div className="create-intro"><div><Pill color="green">任何人都可以创建</Pill><h2>给一段真实关系，<br/>画出清楚的边界。</h2><p>圈子不是一种新产品，而是一组独立的成员、规则和互助账户。</p></div><button onClick={onExit}>暂时退出</button></div>
+
+    <nav className="create-progress" aria-label="创建圈子步骤">{steps.map((label, index) => <button key={label} className={step === index + 1 ? "active" : step > index + 1 ? "done" : ""} onClick={() => setStep(index + 1)}><b>{step > index + 1 ? "✓" : `0${index + 1}`}</b><span>{label}</span></button>)}</nav>
+
+    <div className="create-panel">
+      {step === 1 && <><div className="create-heading"><span>STEP 01 · IDENTITY</span><h2>这个圈子，连接着谁？</h2><p>先写清楚共同场景，不需要把它包装成一个宏大的社区。</p></div><div className="create-form-grid"><label className="wide"><span>圈子名称</span><input value={name} onChange={(event) => setName(event.target.value)}/></label><label><span>地图上的简称</span><input maxLength={2} value={short} onChange={(event) => setShort(event.target.value)}/></label><label><span>互助额度名称</span><input value={currency} onChange={(event) => { const next = event.target.value; setReferenceValue((value) => value === `约 5 ${currency}` ? `约 5 ${next}` : value); setCurrency(next); }}/></label><label className="wide"><span>一句话介绍</span><textarea value={tagline} onChange={(event) => setTagline(event.target.value)}/></label></div><span className="form-label">更接近哪一种真实场景</span><div className="create-choice-row"><button className={scene === "friends" ? "active" : ""} onClick={() => setScene("friends")}><b>熟人邀请</b><small>朋友、协作者与被认真介绍的人</small></button><button className={scene === "learning" ? "active" : ""} onClick={() => setScene("learning")}><b>共学小组</b><small>一起学习，也交换反馈与注意力</small></button><button className={scene === "place" ? "active" : ""} onClick={() => setScene("place")}><b>线下社区</b><small>共享空间、工具与日常照料</small></button></div></>}
+
+      {step === 2 && <><div className="create-heading"><span>STEP 02 · MUTUAL CREDIT</span><h2>互助怎么被记住？</h2><p>额度只记录已经完成的帮助；需要、提供和好人卡是不同的记录。</p></div><div className="mechanism-card"><div className="mechanism-icon">＋<br/>−</div><div><Pill color="yellow">互助账户 · 默认机制</Pill><h3>成员之间共同记账</h3><p>提供帮助的人增加额度，接受帮助的人减少额度。正负都不是排名，也不与人民币兑换。</p></div><b>已选择</b></div><div className="reference-editor"><div><span>第一项协商参考</span><input value={referenceName} onChange={(event) => setReferenceName(event.target.value)}/></div><div><span>大约多少额度</span><input value={referenceValue} onChange={(event) => setReferenceValue(event.target.value)}/></div><small>只是第一次协商的参照，不是统一价格。创建后可以继续增加、修改或删除。</small></div><span className="form-label">圈子里还允许留下什么</span><div className="create-toggle-grid"><label><span><b>需要 / 提供</b><small>发布不会改变余额</small></span><input type="checkbox" checked={needs} onChange={(event) => setNeeds(event.target.checked)}/></label><label><span><b>好人卡</b><small>感谢故事不产生债务</small></span><input type="checkbox" checked={cards} onChange={(event) => setCards(event.target.checked)}/></label></div></>}
+
+      {step === 3 && <><div className="create-heading"><span>STEP 03 · GOVERNANCE</span><h2>谁能加入，什么不公开？</h2><p>先把拒绝、隐私和退出写进规则，再开始邀请成员。</p></div><span className="form-label">新成员怎么加入</span><div className="create-choice-row two"><button className={joining === "direct" ? "active" : ""} onClick={() => setJoining("direct")}><b>种子期 · 受邀直接加入</b><small>适合彼此认识的小范围启动</small></button><button className={joining === "approval" ? "active" : ""} onClick={() => setJoining("approval")}><b>扩大期 · 管理员审批</b><small>适合关系正在向外扩展的圈子</small></button></div><span className="form-label">互助记录默认可见范围</span><div className="visibility-choice"><button className={visibility === "public" ? "active" : ""} onClick={() => setVisibility("public")}><b>圈内公开</b><small>人物、故事和额度对本圈可见</small></button><button className={visibility === "private" ? "active" : ""} onClick={() => setVisibility("private")}><b>仅当事人</b><small>需要时再由记录者主动公开</small></button></div><div className="boundary-checks"><label><span><b>允许神秘记录</b><small>隐藏人物和具体故事，只留下互助类型、时间和额度</small></span><input type="checkbox" checked={mystery} onChange={(event) => setMystery(event.target.checked)}/></label><label><span><b>成员可以暂停或退出</b><small>退出前可下载自己的记录，不设置惩罚</small></span><input type="checkbox" checked={allowExit} onChange={(event) => setAllowExit(event.target.checked)}/></label><label><span><b>明确不与人民币兑换</b><small>这是创建圈子的必要边界，不能关闭</small></span><input type="checkbox" checked readOnly/></label><label><span><b>明确不做贡献排名</b><small>负余额也不是信用污点，不能关闭</small></span><input type="checkbox" checked readOnly/></label></div></>}
+
+      {step === 4 && <><div className="create-heading"><span>STEP 04 · REVIEW</span><h2>邀请别人之前，先完整看一遍。</h2><p>这张预览只展示建圈所需的最小规则；创建后仍可以继续讨论和修改。</p></div><article className="circle-draft-preview"><header><div className="draft-flag"><span>{short || "圈"}</span></div><div><Pill color="cream">新圈草稿 · {sceneLabels[scene]}</Pill><h2>{name || "未命名圈子"}</h2><p>{tagline || "还没有写一句话介绍"}</p></div></header><div className="draft-summary"><div><span>互助额度</span><b>{currency || "未命名"}</b><small>互助账户 · 不兑换人民币</small></div><div><span>加入方式</span><b>{joining === "direct" ? "受邀直接加入" : "管理员审批"}</b><small>{visibility === "public" ? "记录默认圈内公开" : "记录默认仅当事人"}</small></div><div><span>第一项参考</span><b>{referenceName}</b><small>{referenceValue}</small></div></div><ul><li>只记录已经完成的互助</li>{needs && <li>允许发布需要 / 提供，发布不改变余额</li>}{cards && <li>允许发送好人卡，好人卡不产生债务</li>}{mystery && <li>敏感互助可以使用神秘记录</li>}{allowExit && <li>成员可以暂停或退出并带走自己的记录</li>}</ul><footer><span>可以开口，也可以拒绝。</span><b>NO PRESSURE · NO RANKING</b></footer></article><div className="review-warning"><b>静态演示提示</b><p>点击“保存圈子草稿”只会展示创建完成状态，不会建立真实数据库、账户或邀请链接。</p></div></>}
+
+      <div className="create-footer"><button className="secondary-button" onClick={() => step === 1 ? onExit() : setStep(step - 1)}>{step === 1 ? "取消" : "← 上一步"}</button>{step < 4 ? <button className="primary-button" onClick={() => setStep(step + 1)}>继续：{steps[step]} →</button> : <button className="primary-button" onClick={() => { onDone(name || "新圈子"); setSaved(true); }}>保存圈子草稿</button>}</div>
+    </div>
+  </section>;
 }
 
 function FeedFilterSheet({ active, onSelect, onClose }: { active: FeedFilter; onSelect: (filter: FeedFilter) => void; onClose: () => void }) {

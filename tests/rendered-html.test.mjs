@@ -49,6 +49,12 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /好人卡/);
   assert.match(page, /FLOW CIRCLE/);
   assert.match(page, /AboutView/);
+  assert.match(page, /CreateCircleView/);
+  assert.match(page, /圈子身份/);
+  assert.match(page, /互助设置/);
+  assert.match(page, /成员与边界/);
+  assert.match(page, /预览确认/);
+  assert.match(page, /不与人民币兑换/);
   assert.match(page, /关于流动圈/);
   assert.match(page, /让帮助被记得/);
   assert.match(page, /setView\("about"\)/);
@@ -69,6 +75,8 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(css, /profile-tabs/);
   assert.match(css, /about-hero/);
   assert.match(css, /brand-mini/);
+  assert.match(css, /create-progress/);
+  assert.match(css, /circle-draft-preview/);
   assert.match(readme, /三个实例，不是三个产品/);
   assert.match(dataDoc, /完整虚构好人卡/);
   assert.match(designDoc, /FLOW CIRCLE/);
