@@ -53,6 +53,10 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /查看规则/);
   assert.match(page, /邀请成员/);
   assert.match(page, /DiscoverFilter/);
+  assert.match(page, /feedCircleId/);
+  assert.match(page, /post\.circleId !== feedCircleId/);
+  assert.match(page, /全部圈子/);
+  assert.match(page, /EVENTS IN THIS CIRCLE/);
   assert.doesNotMatch(page, /LIU DONG/);
   assert.match(css, /radial-gradient/);
   assert.match(css, /--yellow/);

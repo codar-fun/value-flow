@@ -100,6 +100,7 @@ function SectionTitle({ eyebrow, title, action, onAction }: { eyebrow?: string; 
 export default function Home() {
   const [view, setView] = useState<View>("feed");
   const [circleId, setCircleId] = useState("qiao");
+  const [feedCircleId, setFeedCircleId] = useState("all");
   const [composer, setComposer] = useState(false);
   const [intent, setIntent] = useState<ComposerType>("record");
   const [draft, setDraft] = useState(false);
@@ -117,10 +118,11 @@ export default function Home() {
   const selectedPost = posts.find((post) => post.id === selectedPostId) ?? posts[0];
   const currentDraft = draftCopy[intent];
   const feedPosts = useMemo(() => posts.filter((post) => {
+    if (feedCircleId !== "all" && post.circleId !== feedCircleId) return false;
     if (feedFilter === "all") return true;
     if (feedFilter === "trade") return post.kind === "trade" || post.kind === "mystery";
     return post.kind === feedFilter;
-  }), [feedFilter]);
+  }), [feedFilter, feedCircleId]);
   const discoverPosts = useMemo(() => posts.filter((post) => {
     if (post.kind !== "need" && post.kind !== "offer") return false;
     if (discoverFilter === "all") return true;
@@ -138,7 +140,11 @@ export default function Home() {
   }
 
   function selectCircle(id: string, nextView: View = "feed") {
-    setCircleId(id); setView(nextView);
+    setCircleId(id); setFeedCircleId(id); setView(nextView);
+  }
+
+  function showAllCircles() {
+    setFeedCircleId("all"); setView("feed");
   }
 
   function openProfile(id?: string, tab: ProfileTab = "cards") {
@@ -158,7 +164,8 @@ export default function Home() {
     <aside className="circle-dock" aria-label="我的圈子地图">
       <div className="brand-mark"><span>流动圈</span><b>FLOW CIRCLE</b></div>
       <div className="dock-heading"><span>我的地图</span><b>{String(circles.length).padStart(2,"0")}</b></div>
-      <div className="dock-list">{circles.map((item) => { const account = accountFor("qiaoye", item.id); return <button key={item.id} className={`dock-circle dock-${item.color} ${circleId === item.id ? "active" : ""}`} onClick={() => selectCircle(item.id)}><Character text={item.short} color={item.color} variant={item.id === "qiao" ? "wave" : item.id === "human" ? "crop" : "leaf"} small/><span><b>{item.name}</b><small>{item.role}</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div>
+      <button className={`dock-all ${feedCircleId === "all" && view === "feed" ? "active" : ""}`} onClick={showAllCircles}><span>◎</span><b>全部圈子动态</b><strong>{posts.length}</strong></button>
+      <div className="dock-list">{circles.map((item) => { const account = accountFor("qiaoye", item.id); return <button key={item.id} className={`dock-circle dock-${item.color} ${feedCircleId === item.id ? "active" : ""}`} onClick={() => selectCircle(item.id)}><Character text={item.short} color={item.color} variant={item.id === "qiao" ? "wave" : item.id === "human" ? "crop" : "leaf"} small/><span><b>{item.name}</b><small>{item.role}</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div>
       <button className="new-circle" onClick={() => setOverlay("create")}><b>＋</b><span>创建新圈子</span></button>
       <p className="dock-note">三个圈子只是俏也加入的三个社区。每个圈子都有自己的成员、规则和互助额度。</p>
     </aside>
@@ -166,11 +173,11 @@ export default function Home() {
     <section className="phone-stage">
       <div className="app-frame">
         <header className="topbar"><div><p>我的圈子动态</p><h1>早上好，俏也！</h1></div><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById("qiaoye")}/></button></header>
-        <nav className="circle-switcher" aria-label="切换圈子">{circles.map((item) => { const account = accountFor("qiaoye", item.id); return <button key={item.id} className={circleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><span className={`circle-dot dot-${item.color}`}/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>
+        <nav className="circle-switcher" aria-label="切换动态范围"><button className={`all-switch ${feedCircleId === "all" && view === "feed" ? "selected" : ""}`} onClick={showAllCircles}><span className="circle-dot dot-all"/><span>全部圈子</span><b>{posts.length}</b></button>{circles.map((item) => { const account = accountFor("qiaoye", item.id); return <button key={item.id} className={feedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><span className={`circle-dot dot-${item.color}`}/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>
         <div className="view-content">
-          {view === "feed" && <FeedView activeCircle={activeCircle} activeAccount={activeAccount} posts={feedPosts} filter={feedFilter} onSpeak={openComposer} onCircle={() => setView("circle")} onMe={() => setView("me")} onProfile={openProfile} onShare={() => setOverlay("share")} onFilter={() => setOverlay("feedFilter")} onPost={openPost}/>}
+          {view === "feed" && <FeedView activeCircle={activeCircle} activeAccount={activeAccount} isAllCircles={feedCircleId === "all"} posts={feedPosts} filter={feedFilter} onSpeak={openComposer} onCircle={() => setView("circle")} onMe={() => setView("me")} onProfile={openProfile} onShare={() => setOverlay("share")} onFilter={() => setOverlay("feedFilter")} onPost={openPost}/>}
           {view === "discover" && <DiscoverView posts={discoverPosts} filter={discoverFilter} setFilter={setDiscoverFilter} onSpeak={openComposer} onProfile={openProfile} onShare={() => setOverlay("share")} onPost={openPost}/>}
-          {view === "circle" && <CircleView circle={activeCircle} account={activeAccount} onSpeak={openComposer} onProfile={openProfile} onIntro={() => setOverlay("intro")} onRules={() => setOverlay("rules")} onMembers={() => setOverlay("members")} onInvite={() => setOverlay("invite")}/>}
+          {view === "circle" && <CircleView circle={activeCircle} account={activeAccount} posts={posts.filter((post) => post.circleId === activeCircle.id)} onSpeak={openComposer} onProfile={openProfile} onShare={() => setOverlay("share")} onPost={openPost} onIntro={() => setOverlay("intro")} onRules={() => setOverlay("rules")} onMembers={() => setOverlay("members")} onInvite={() => setOverlay("invite")}/>}
           {view === "me" && <MeView onShare={() => setOverlay("share")} onCard={() => openComposer("card")} onCreate={() => setOverlay("create")} onSettings={() => setOverlay("settings")} onCircle={(id) => selectCircle(id, "circle")} onArchive={(tab) => openProfile("qiaoye", tab)}/>}
         </div>
         <nav className="bottom-nav" aria-label="主要导航">
@@ -208,10 +215,12 @@ function AgentHero({ onSpeak }: { onSpeak: (intent?: ComposerType) => void }) {
   return <section className="agent-hero"><div className="hero-decor decor-grid"/><div className="hero-decor decor-square"/><div className="hero-decor decor-circle"/><div className="agent-orb"><i className="agent-antenna"/><span>◕‿◕</span><b>泡泡助手</b></div><div className="agent-copy"><Pill color="cream">在线 · ONLINE</Pill><h2>说一句，<br/>让互助流动起来。</h2><p>我会帮你整理成可检查、可修改的草稿。</p></div><button className="speak-button" onClick={() => onSpeak()}><span>●</span><b>说一句</b><small>交易 · 需要 · 提供 · 好人卡</small></button></section>;
 }
 
-function FeedView({ activeCircle, activeAccount, posts: list, filter, onSpeak, onCircle, onMe, onProfile, onShare, onFilter, onPost }: { activeCircle: Circle; activeAccount: ReturnType<typeof accountFor>; posts: Post[]; filter: FeedFilter; onSpeak: (intent?: ComposerType) => void; onCircle: () => void; onMe: () => void; onProfile: (id?: string) => void; onShare: () => void; onFilter: () => void; onPost: (id: number) => void }) {
+function FeedView({ activeCircle, activeAccount, isAllCircles, posts: list, filter, onSpeak, onCircle, onMe, onProfile, onShare, onFilter, onPost }: { activeCircle: Circle; activeAccount: ReturnType<typeof accountFor>; isAllCircles: boolean; posts: Post[]; filter: FeedFilter; onSpeak: (intent?: ComposerType) => void; onCircle: () => void; onMe: () => void; onProfile: (id?: string) => void; onShare: () => void; onFilter: () => void; onPost: (id: number) => void }) {
   const labels: Record<FeedFilter,string> = { all: "全部动态", trade: "互助记录", need: "只看需要", offer: "只看提供", card: "好人卡" };
   const myCards = demoDb.goodCards.filter((card) => card.toMemberId === "qiaoye" && card.visibility === "cross-circle").length;
-  return <><AgentHero onSpeak={onSpeak}/><section className="stats-grid" aria-label="当前圈子概览"><button className="stat-card stat-yellow" onClick={onCircle}><span>当前额度</span><strong>{activeAccount.balance > 0 ? "+" : ""}{activeAccount.balance}</strong><small>{activeCircle.currency} · {activeCircle.name}</small></button><button className="stat-card stat-pink" onClick={onMe}><span>我给出过</span><strong>{activeAccount.given}</strong><small>不是排名，是记忆</small></button><button className="stat-card stat-blue" onClick={() => onProfile("qiaoye")}><span>好人卡</span><strong>{myCards}</strong><small>跨圈跟着我</small></button></section><SectionTitle eyebrow="LIVE FROM THE CIRCLE" title={labels[filter]} action={`筛选 · ${list.length}`} onAction={onFilter}/><FeedList posts={list} onProfile={onProfile} onShare={onShare} onPost={onPost}/></>;
+  const totalGiven = demoDb.accounts.filter((account) => account.memberId === "qiaoye").reduce((sum, account) => sum + account.given, 0);
+  const scopeTitle = isAllCircles ? "全部圈子" : activeCircle.name;
+  return <><AgentHero onSpeak={onSpeak}/><section className="scope-banner"><span>{isAllCircles ? "综合动态" : "当前圈子"}</span><b>{scopeTitle}</b><small>{list.length} 条符合当前筛选的动态</small></section><section className="stats-grid" aria-label="当前动态范围概览"><button className="stat-card stat-yellow" onClick={isAllCircles ? onMe : onCircle}><span>{isAllCircles ? "已加入圈子" : "当前额度"}</span><strong>{isAllCircles ? circles.length : `${activeAccount.balance > 0 ? "+" : ""}${activeAccount.balance}`}</strong><small>{isAllCircles ? "每个圈有独立账户" : `${activeCircle.currency} · ${activeCircle.name}`}</small></button><button className="stat-card stat-pink" onClick={onMe}><span>我给出过</span><strong>{isAllCircles ? totalGiven : activeAccount.given}</strong><small>{isAllCircles ? "三个圈的社区记忆" : "不是排名，是记忆"}</small></button><button className="stat-card stat-blue" onClick={() => onProfile("qiaoye")}><span>好人卡</span><strong>{myCards}</strong><small>跨圈跟着我</small></button></section><SectionTitle eyebrow="LIVE FROM THE CIRCLE" title={`${scopeTitle} · ${labels[filter]}`} action={`筛选 · ${list.length}`} onAction={onFilter}/><FeedList posts={list} onProfile={onProfile} onShare={onShare} onPost={onPost}/></>;
 }
 
 function DiscoverView({ posts: list, filter, setFilter, onSpeak, onProfile, onShare, onPost }: { posts: Post[]; filter: DiscoverFilter; setFilter: (filter: DiscoverFilter) => void; onSpeak: (intent?: ComposerType) => void; onProfile: (id?: string) => void; onShare: () => void; onPost: (id: number) => void }) {
@@ -219,8 +228,8 @@ function DiscoverView({ posts: list, filter, setFilter, onSpeak, onProfile, onSh
   return <><section className="page-hero discover-hero"><div><Pill color="pink">跨圈发现</Pill><h2>有人在寻找，<br/>也有人正好可以给。</h2><p>看到“可以提供”，不代表对方必须答应。先问问就好。</p></div><button onClick={() => onSpeak("need")}>＋ 发布</button></section><div className="filter-row" aria-label="发现筛选">{options.map((item) => <button key={item.id} className={filter === item.id ? "active" : ""} onClick={() => setFilter(item.id)}>{item.label}</button>)}</div><p className="result-note">找到 {list.length} 条仍然有效的内容</p><FeedList posts={list} onProfile={onProfile} onShare={onShare} onPost={onPost}/></>;
 }
 
-function CircleView({ circle, account, onSpeak, onProfile, onIntro, onRules, onMembers, onInvite }: { circle: Circle; account: ReturnType<typeof accountFor>; onSpeak: (intent?: ComposerType) => void; onProfile: (id?: string) => void; onIntro: () => void; onRules: () => void; onMembers: () => void; onInvite: () => void }) {
-  return <><section className={`page-hero circle-hero hero-${circle.color}`}><div><Pill color="cream">我的营地 · {circle.location}</Pill><h2>{circle.name}</h2><p>{circle.tagline}</p></div><div className="coin-badge"><span>{account.balance > 0 ? "+" : ""}{account.balance}</span><small>{circle.currency}</small></div></section><div className="circle-actions"><button onClick={() => onSpeak()}>● 说一句</button><button onClick={onInvite}>邀请成员</button><button onClick={onIntro}>圈子介绍</button></div><button className="camp-preview" onClick={onIntro}><span className={`camp-flag flag-${circle.color}`}>{circle.short}</span><div><small>CAMP PROFILE</small><h3>{circle.tagline}</h3><p>{circle.joining} · {circle.members} 位成员</p></div><b>进入介绍 →</b></button><section className="balance-panel"><div><span>当前额度</span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong><small>我在这个圈的流动额度</small></div><div><span>给出过</span><strong>{account.given}</strong><small>来自真实互助</small></div><div><span>收到过</span><strong>{account.received}</strong><small>接受帮助也很好</small></div></section><SectionTitle eyebrow="REFERENCE" title="圈内参考物" action="查看规则" onAction={onRules}/><div className="reference-grid">{circle.references.map((item) => <button key={item.name} onClick={onRules}><b>{item.name}</b><span>{item.value}</span></button>)}</div><SectionTitle eyebrow="PEOPLE" title="最近活跃的成员" action="全部成员" onAction={onMembers}/><div className="member-row">{circle.memberIds.slice(0,4).map((id) => { const member = memberById(id); return <button key={member.id} onClick={() => onProfile(member.id)}><Character member={member} small/><b>{member.name}</b><small>{member.role}</small></button>; })}</div></>;
+function CircleView({ circle, account, posts: circlePosts, onSpeak, onProfile, onShare, onPost, onIntro, onRules, onMembers, onInvite }: { circle: Circle; account: ReturnType<typeof accountFor>; posts: Post[]; onSpeak: (intent?: ComposerType) => void; onProfile: (id?: string) => void; onShare: () => void; onPost: (id: number) => void; onIntro: () => void; onRules: () => void; onMembers: () => void; onInvite: () => void }) {
+  return <><section className={`page-hero circle-hero hero-${circle.color}`}><div><Pill color="cream">我的营地 · {circle.location}</Pill><h2>{circle.name}</h2><p>{circle.tagline}</p></div><div className="coin-badge"><span>{account.balance > 0 ? "+" : ""}{account.balance}</span><small>{circle.currency}</small></div></section><div className="circle-actions"><button onClick={() => onSpeak()}>● 说一句</button><button onClick={onInvite}>邀请成员</button><button onClick={onIntro}>圈子介绍</button></div><button className="camp-preview" onClick={onIntro}><span className={`camp-flag flag-${circle.color}`}>{circle.short}</span><div><small>CAMP PROFILE</small><h3>{circle.tagline}</h3><p>{circle.joining} · {circle.members} 位成员</p></div><b>进入介绍 →</b></button><section className="balance-panel"><div><span>当前额度</span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong><small>我在这个圈的流动额度</small></div><div><span>给出过</span><strong>{account.given}</strong><small>来自真实互助</small></div><div><span>收到过</span><strong>{account.received}</strong><small>接受帮助也很好</small></div></section><SectionTitle eyebrow="REFERENCE" title="圈内参考物" action="查看规则" onAction={onRules}/><div className="reference-grid">{circle.references.map((item) => <button key={item.name} onClick={onRules}><b>{item.name}</b><span>{item.value}</span></button>)}</div><SectionTitle eyebrow="PEOPLE" title="最近活跃的成员" action="全部成员" onAction={onMembers}/><div className="member-row">{circle.memberIds.slice(0,4).map((id) => { const member = memberById(id); return <button key={member.id} onClick={() => onProfile(member.id)}><Character member={member} small/><b>{member.name}</b><small>{member.role}</small></button>; })}</div><div className="circle-feed"><SectionTitle eyebrow={`${circlePosts.length} EVENTS IN THIS CIRCLE`} title={`${circle.name}动态`}/><FeedList posts={circlePosts} onProfile={onProfile} onShare={onShare} onPost={onPost}/></div></>;
 }
 
 function MeView({ onShare, onCard, onCreate, onSettings, onCircle, onArchive }: { onShare: () => void; onCard: () => void; onCreate: () => void; onSettings: () => void; onCircle: (id: string) => void; onArchive: (tab: ProfileTab) => void }) {
