@@ -7,7 +7,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const metadataBase = new URL(`${protocol}://${host}`);
-  const title = "流动圈｜社区互助静态 Demo";
+  const title = "流动圈｜让帮助被记得";
   const description = "记录需要、提供、互助额度和好人卡的轻量社区记忆。可以问，也可以拒绝。";
 
   return {

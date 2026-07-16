@@ -12,6 +12,10 @@ interface Env {
       };
     };
   };
+  BUBBLE_ASSISTANT_API_URL?: string;
+  BUBBLE_ASSISTANT_API_KEY?: string;
+  BUBBLE_ASSISTANT_MODEL?: string;
+  BUBBLE_ASSISTANT_SYSTEM_PROMPT?: string;
 }
 
 interface ExecutionContext {
@@ -27,6 +31,7 @@ interface ExecutionContext {
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    (globalThis as typeof globalThis & { __FLOW_CIRCLE_ENV?: Env }).__FLOW_CIRCLE_ENV = env;
     const url = new URL(request.url);
 
     if (url.pathname === "/_vinext/image") {

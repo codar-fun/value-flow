@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { demoDb, type AvatarVariant, type Circle, type Color, type Member } from "./demo-data";
+import type { AppDatabase } from "../db/runtime";
+import type { AssistantDraft } from "./api/assistant/draft/route";
 
 type View = "feed" | "discover" | "circle" | "me" | "about" | "create";
 type ComposerType = "record" | "need" | "offer" | "card";
@@ -29,7 +31,10 @@ type Post = {
   sourceId: string;
 };
 
-const { members, circles } = demoDb;
+const initialDb: AppDatabase = { ...(demoDb as unknown as Omit<AppDatabase, "settings" | "currentMemberId">), settings: { publicCards: true, publicListings: true, keepHiddenPrivate: true }, currentMemberId: "qiaoye" };
+let activeDb = initialDb;
+let members = activeDb.members;
+let circles = activeDb.circles;
 
 function memberById(id?: string) {
   return members.find((member) => member.id === id) ?? members[0];
@@ -40,30 +45,30 @@ function circleById(id?: string) {
 }
 
 function accountFor(memberId: string, circleId: string) {
-  return demoDb.accounts.find((account) => account.memberId === memberId && account.circleId === circleId) ?? { memberId, circleId, balance: 0, given: 0, received: 0 };
+  return activeDb.accounts.find((account) => account.memberId === memberId && account.circleId === circleId) ?? { memberId, circleId, balance: 0, given: 0, received: 0 };
 }
 
 function buildPosts(): Post[] {
-  return demoDb.activity.map((activity) => {
+  return activeDb.activity.map((activity) => {
     if (activity.source === "listing") {
-      const listing = demoDb.listings.find((item) => item.id === activity.sourceId)!;
+      const listing = activeDb.listings.find((item) => item.id === activity.sourceId)!;
       const member = memberById(listing.memberId);
       const circle = circleById(listing.circleIds[0]);
       return { id: activity.id, kind: listing.type, badge: listing.type === "need" ? "我想要" : "我可以给", person: member.name, role: member.role, memberId: member.id, avatar: member.initial, avatarVariant: member.avatar, color: listing.type === "need" ? "pink" : "green", text: listing.detail, meta: `${circle.name} · ${listing.location}`, chips: listing.tags, circleId: circle.id, nearby: listing.nearby, source: activity.source, sourceId: listing.id };
     }
     if (activity.source === "card") {
-      const card = demoDb.goodCards.find((item) => item.id === activity.sourceId)!;
+      const card = activeDb.goodCards.find((item) => item.id === activity.sourceId)!;
       const from = memberById(card.fromMemberId); const to = memberById(card.toMemberId);
       return { id: activity.id, kind: "card", badge: "好人卡", person: `${from.name} → ${to.name}`, role: "跨圈公开", memberId: to.id, avatar: to.initial, avatarVariant: to.avatar, color: "coral", text: card.story, meta: `${card.date} · 被好好看见`, chips: card.tags, circleId: card.circleId, source: activity.source, sourceId: card.id };
     }
-    const transaction = demoDb.transactions.find((item) => item.id === activity.sourceId)!;
+    const transaction = activeDb.transactions.find((item) => item.id === activity.sourceId)!;
     const provider = memberById(transaction.providerId); const receiver = memberById(transaction.receiverId); const circle = circleById(transaction.circleId);
     const mystery = transaction.visibility === "mystery";
     return { id: activity.id, kind: mystery ? "mystery" : "trade", badge: mystery ? "神秘记录" : "互助完成", person: mystery ? "圈里发生了一次互助" : `${provider.name} → ${receiver.name}`, role: mystery ? "身份与故事已隐藏" : "圈内公开", memberId: mystery ? undefined : provider.id, avatar: mystery ? "?" : provider.initial, avatarVariant: mystery ? "crop" : provider.avatar, color: mystery ? "blue" : "yellow", text: transaction.story, meta: `${circle.name} · ${transaction.amount} ${circle.currency}`, chips: transaction.tags, circleId: circle.id, nearby: circle.id === "village", source: activity.source, sourceId: transaction.id };
   });
 }
 
-const posts = buildPosts();
+let posts = buildPosts();
 
 const intents: { id: ComposerType; label: string; hint: string; color: Color; icon: string }[] = [
   { id: "record", label: "记一笔", hint: "已经完成的互助", color: "yellow", icon: "记" },
@@ -98,6 +103,7 @@ function SectionTitle({ eyebrow, title, action, onAction }: { eyebrow?: string; 
 }
 
 export default function Home() {
+  const [db, setDb] = useState<AppDatabase>(initialDb);
   const [view, setView] = useState<View>("feed");
   const [circleId, setCircleId] = useState("qiao");
   const [feedCircleId, setFeedCircleId] = useState("all");
@@ -112,8 +118,24 @@ export default function Home() {
   const [discoverFilter, setDiscoverFilter] = useState<DiscoverFilter>("all");
   const [toast, setToast] = useState("");
 
+  activeDb = db; members = db.members; circles = db.circles; posts = buildPosts();
+  const currentMemberId = db.currentMemberId || "qiaoye";
+
+  async function refreshData() {
+    const response = await fetch("/api/bootstrap", { cache: "no-store" });
+    const payload = await response.json() as AppDatabase & { error?: string };
+    if (!response.ok) throw new Error(payload.error || "数据加载失败");
+    setDb(payload);
+  }
+
+  useEffect(() => {
+    let active=true;
+    fetch("/api/bootstrap",{cache:"no-store"}).then(async (response)=>{const payload=await response.json() as AppDatabase&{error?:string};if(!response.ok)throw new Error(payload.error||"数据加载失败");if(active)setDb(payload);}).catch((error)=>{if(active)flash(error instanceof Error?error.message:"暂时无法连接数据服务");});
+    return()=>{active=false;};
+  }, []);
+
   const activeCircle = circles.find((item) => item.id === circleId) ?? circles[0];
-  const activeAccount = accountFor("qiaoye", activeCircle.id);
+  const activeAccount = accountFor(currentMemberId, activeCircle.id);
   const selectedMember = memberById(selectedMemberId);
   const selectedPost = posts.find((post) => post.id === selectedPostId) ?? posts[0];
   const currentDraft = draftCopy[intent];
@@ -159,9 +181,13 @@ export default function Home() {
     setSelectedPostId(id); setOverlay("post");
   }
 
-  function confirmDraft() {
-    setComposer(false); setDraft(false);
-    flash(intent === "record" ? "记录已进入圈子，对方可以修改或拒绝" : intent === "card" ? "好人卡已送到对方的跨圈主页" : "已经发布，可以生成分享图啦");
+  async function confirmDraft(assistantDraft: AssistantDraft) {
+    try {
+      const response = await fetch("/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ draft: assistantDraft }) });
+      const result = await response.json() as { error?: string }; if (!response.ok) throw new Error(result.error || "保存失败");
+      await refreshData(); setComposer(false); setDraft(false);
+      flash(intent === "record" ? "记录已进入圈子，对方可以修改或拒绝" : intent === "card" ? "好人卡已送到对方的跨圈主页" : "已经发布，可以生成分享图啦");
+    } catch (error) { flash(error instanceof Error ? error.message : "保存失败"); }
   }
 
   return <main className="world-shell">
@@ -169,22 +195,25 @@ export default function Home() {
       <button className={`brand-mark ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流动圈</span><b>FLOW CIRCLE · 了解我们 →</b></button>
       <div className="dock-heading"><span>我的地图</span><b>{String(circles.length).padStart(2,"0")}</b></div>
       <button className={`dock-all ${feedCircleId === "all" && view === "feed" ? "active" : ""}`} onClick={showAllCircles}><span>◎</span><b>全部圈子动态</b><strong>{posts.length}</strong></button>
-      <div className="dock-list">{circles.map((item) => { const account = accountFor("qiaoye", item.id); return <button key={item.id} className={`dock-circle dock-${item.color} ${feedCircleId === item.id ? "active" : ""}`} onClick={() => selectCircle(item.id)}><Character text={item.short} color={item.color} variant={item.id === "qiao" ? "wave" : item.id === "human" ? "crop" : "leaf"} small/><span><b>{item.name}</b><small>{item.role}</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div>
+      <div className="dock-list">{circles.filter((item) => memberById(currentMemberId).circleIds.includes(item.id)).map((item) => { const account = accountFor(currentMemberId, item.id); return <button key={item.id} className={`dock-circle dock-${item.color} ${feedCircleId === item.id ? "active" : ""}`} onClick={() => selectCircle(item.id)}><Character text={item.short} color={item.color} variant={item.id === "qiao" ? "wave" : item.id === "human" ? "crop" : "leaf"} small/><span><b>{item.name}</b><small>{item.role}</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div>
       <button className="new-circle" onClick={openCreateCircle}><b>＋</b><span>创建新圈子</span></button>
       <p className="dock-note">三个圈子只是俏也加入的三个社区。每个圈子都有自己的成员、规则和互助额度。</p>
     </aside>
 
     <section className="phone-stage">
       <div className={`app-frame ${view === "about" || view === "create" ? "about-open" : ""}`}>
-        <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流</span><i/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : view === "create" ? "NEW CIRCLE · 创建向导" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : view === "create" ? "创建新圈子" : "早上好，俏也！"}</h1></div><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById("qiaoye")}/></button></header>
-        {view !== "about" && view !== "create" && <nav className="circle-switcher" aria-label="切换动态范围"><button className={`all-switch ${feedCircleId === "all" && view === "feed" ? "selected" : ""}`} onClick={showAllCircles}><span className="circle-dot dot-all"/><span>全部圈子</span><b>{posts.length}</b></button>{circles.map((item) => { const account = accountFor("qiaoye", item.id); return <button key={item.id} className={feedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><span className={`circle-dot dot-${item.color}`}/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>}
+        <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流</span><i/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : view === "create" ? "NEW CIRCLE · 创建向导" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : view === "create" ? "创建新圈子" : `你好，${memberById(currentMemberId).name}！`}</h1></div><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById(currentMemberId)}/></button></header>
+        {view !== "about" && view !== "create" && <nav className="circle-switcher" aria-label="切换动态范围"><button className={`all-switch ${feedCircleId === "all" && view === "feed" ? "selected" : ""}`} onClick={showAllCircles}><span className="circle-dot dot-all"/><span>全部圈子</span><b>{posts.length}</b></button>{circles.filter((item) => memberById(currentMemberId).circleIds.includes(item.id)).map((item) => { const account = accountFor(currentMemberId, item.id); return <button key={item.id} className={feedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><span className={`circle-dot dot-${item.color}`}/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>}
         <div className="view-content">
           {view === "about" && <AboutView onExplore={showAllCircles} onCreate={openCreateCircle} onCircle={(id) => selectCircle(id, "circle")}/>}
-          {view === "create" && <CreateCircleView onExit={() => setView("me")} onDone={(name) => flash(`${name}的草稿已保存（静态演示）`)}/>}
+          {view === "create" && <CreateCircleView onExit={() => setView("me")} onDone={async (input) => {
+            const response=await fetch("/api/circles",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(input)}); const result=await response.json() as {error?:string};
+            if(!response.ok) throw new Error(result.error||"创建失败"); await refreshData(); flash(`${input.name}已经创建，可以邀请成员了`);
+          }}/>} 
           {view === "feed" && <FeedView activeCircle={activeCircle} activeAccount={activeAccount} isAllCircles={feedCircleId === "all"} posts={feedPosts} filter={feedFilter} onSpeak={openComposer} onCircle={() => setView("circle")} onMe={() => setView("me")} onProfile={openProfile} onShare={() => setOverlay("share")} onFilter={() => setOverlay("feedFilter")} onPost={openPost}/>}
           {view === "discover" && <DiscoverView posts={discoverPosts} filter={discoverFilter} setFilter={setDiscoverFilter} onSpeak={openComposer} onProfile={openProfile} onShare={() => setOverlay("share")} onPost={openPost}/>}
           {view === "circle" && <CircleView circle={activeCircle} account={activeAccount} posts={posts.filter((post) => post.circleId === activeCircle.id)} onSpeak={openComposer} onProfile={openProfile} onShare={() => setOverlay("share")} onPost={openPost} onIntro={() => setOverlay("intro")} onRules={() => setOverlay("rules")} onMembers={() => setOverlay("members")} onInvite={() => setOverlay("invite")}/>}
-          {view === "me" && <MeView onShare={() => setOverlay("share")} onCard={() => openComposer("card")} onCreate={openCreateCircle} onSettings={() => setOverlay("settings")} onCircle={(id) => selectCircle(id, "circle")} onArchive={(tab) => openProfile("qiaoye", tab)}/>}
+          {view === "me" && <MeView onShare={() => setOverlay("share")} onCard={() => openComposer("card")} onCreate={openCreateCircle} onSettings={() => setOverlay("settings")} onCircle={(id) => selectCircle(id, "circle")} onArchive={(tab) => openProfile(currentMemberId, tab)}/>} 
         </div>
         <nav className="bottom-nav" aria-label="主要导航">
           <button className={view === "feed" ? "active" : ""} onClick={() => setView("feed")}><span className="nav-icon">⌂</span><small>动态</small></button>
@@ -202,16 +231,19 @@ export default function Home() {
       <div className="world-rule"><b>可以问，<br/>也可以拒绝。</b><span>NO PRESSURE · NO RANKING</span></div>
     </aside>
 
-    {composer && <ComposerSheet intent={intent} setIntent={(next) => { setIntent(next); setDraft(false); }} draft={draft} setDraft={setDraft} currentDraft={currentDraft} onClose={() => setComposer(false)} onConfirm={confirmDraft} onNotice={flash}/>}
-    {overlay === "share" && <ShareSheet onClose={() => setOverlay(null)} onDone={() => { setOverlay(null); flash("分享图已准备好，可以发到微信群"); }}/>}
-    {overlay === "profile" && <ProfileSheet member={selectedMember} activeCircleId={circleId} initialTab={profileTab} onClose={() => setOverlay(null)} onNotice={flash}/>}
+    {composer && <ComposerSheet key={intent} circleId={activeCircle.id} intent={intent} setIntent={(next) => { setIntent(next); setDraft(false); }} draft={draft} setDraft={setDraft} currentDraft={currentDraft} onClose={() => setComposer(false)} onConfirm={confirmDraft} onNotice={flash}/>} 
+    {overlay === "share" && <ShareSheet onClose={() => setOverlay(null)} onDone={async () => {
+      const me=memberById(currentMemberId); const canShare=typeof navigator.share==="function";
+      if(canShare) await navigator.share({title:`${me.name}的流动清单`,text:"可以问，也可以拒绝。",url:location.href}); else await navigator.clipboard.writeText(location.href); setOverlay(null); flash(canShare?"已经交给系统分享":"页面链接已复制，可以发到微信群");
+    }}/>} 
+    {overlay === "profile" && <ProfileSheet member={selectedMember} activeCircleId={circleId} initialTab={profileTab} onClose={() => setOverlay(null)} onNotice={flash} onChanged={refreshData}/>} 
     {overlay === "intro" && <CircleIntroSheet circle={activeCircle} onRules={() => setOverlay("rules")} onInvite={() => setOverlay("invite")} onClose={() => setOverlay(null)}/>}
     {overlay === "rules" && <RulesSheet circle={activeCircle} onClose={() => setOverlay(null)}/>}
     {overlay === "members" && <MembersSheet circle={activeCircle} onProfile={openProfile} onInvite={() => setOverlay("invite")} onClose={() => setOverlay(null)}/>}
     {overlay === "invite" && <InviteSheet circle={activeCircle} onClose={() => setOverlay(null)} onNotice={flash}/>}
     {overlay === "feedFilter" && <FeedFilterSheet active={feedFilter} onSelect={(next) => { setFeedFilter(next); setOverlay(null); }} onClose={() => setOverlay(null)}/>}
     {overlay === "post" && <PostSheet post={selectedPost} onProfile={() => selectedPost.memberId && openProfile(selectedPost.memberId)} onShare={() => setOverlay("share")} onClose={() => setOverlay(null)}/>}
-    {overlay === "settings" && <SettingsSheet onClose={() => setOverlay(null)} onNotice={flash}/>}
+    {overlay === "settings" && <SettingsSheet settings={db.settings} onClose={() => setOverlay(null)} onSaved={async () => { await refreshData(); flash("公开设置已经保存"); }}/>} 
     {toast && <div className="toast" role="status">{toast}</div>}
   </main>;
 }
@@ -268,10 +300,10 @@ function AgentHero({ onSpeak }: { onSpeak: (intent?: ComposerType) => void }) {
 
 function FeedView({ activeCircle, activeAccount, isAllCircles, posts: list, filter, onSpeak, onCircle, onMe, onProfile, onShare, onFilter, onPost }: { activeCircle: Circle; activeAccount: ReturnType<typeof accountFor>; isAllCircles: boolean; posts: Post[]; filter: FeedFilter; onSpeak: (intent?: ComposerType) => void; onCircle: () => void; onMe: () => void; onProfile: (id?: string) => void; onShare: () => void; onFilter: () => void; onPost: (id: number) => void }) {
   const labels: Record<FeedFilter,string> = { all: "全部动态", trade: "互助记录", need: "只看需要", offer: "只看提供", card: "好人卡" };
-  const myCards = demoDb.goodCards.filter((card) => card.toMemberId === "qiaoye" && card.visibility === "cross-circle").length;
-  const totalGiven = demoDb.accounts.filter((account) => account.memberId === "qiaoye").reduce((sum, account) => sum + account.given, 0);
+  const myCards = activeDb.goodCards.filter((card) => card.toMemberId === activeDb.currentMemberId && card.visibility === "cross-circle").length;
+  const totalGiven = activeDb.accounts.filter((account) => account.memberId === activeDb.currentMemberId).reduce((sum, account) => sum + account.given, 0);
   const scopeTitle = isAllCircles ? "全部圈子" : activeCircle.name;
-  return <><AgentHero onSpeak={onSpeak}/><section className="scope-banner"><span>{isAllCircles ? "综合动态" : "当前圈子"}</span><b>{scopeTitle}</b><small>{list.length} 条符合当前筛选的动态</small></section><section className="stats-grid" aria-label="当前动态范围概览"><button className="stat-card stat-yellow" onClick={isAllCircles ? onMe : onCircle}><span>{isAllCircles ? "已加入圈子" : "当前额度"}</span><strong>{isAllCircles ? circles.length : `${activeAccount.balance > 0 ? "+" : ""}${activeAccount.balance}`}</strong><small>{isAllCircles ? "每个圈有独立账户" : `${activeCircle.currency} · ${activeCircle.name}`}</small></button><button className="stat-card stat-pink" onClick={onMe}><span>我给出过</span><strong>{isAllCircles ? totalGiven : activeAccount.given}</strong><small>{isAllCircles ? "三个圈的社区记忆" : "不是排名，是记忆"}</small></button><button className="stat-card stat-blue" onClick={() => onProfile("qiaoye")}><span>好人卡</span><strong>{myCards}</strong><small>跨圈跟着我</small></button></section><SectionTitle eyebrow="LIVE FROM THE CIRCLE" title={`${scopeTitle} · ${labels[filter]}`} action={`筛选 · ${list.length}`} onAction={onFilter}/><FeedList posts={list} onProfile={onProfile} onShare={onShare} onPost={onPost}/></>;
+  return <><AgentHero onSpeak={onSpeak}/><section className="scope-banner"><span>{isAllCircles ? "综合动态" : "当前圈子"}</span><b>{scopeTitle}</b><small>{list.length} 条符合当前筛选的动态</small></section><section className="stats-grid" aria-label="当前动态范围概览"><button className="stat-card stat-yellow" onClick={isAllCircles ? onMe : onCircle}><span>{isAllCircles ? "已加入圈子" : "当前额度"}</span><strong>{isAllCircles ? memberById(activeDb.currentMemberId).circleIds.length : `${activeAccount.balance > 0 ? "+" : ""}${activeAccount.balance}`}</strong><small>{isAllCircles ? "每个圈有独立账户" : `${activeCircle.currency} · ${activeCircle.name}`}</small></button><button className="stat-card stat-pink" onClick={onMe}><span>我给出过</span><strong>{isAllCircles ? totalGiven : activeAccount.given}</strong><small>{isAllCircles ? "各圈的社区记忆" : "不是排名，是记忆"}</small></button><button className="stat-card stat-blue" onClick={() => onProfile(activeDb.currentMemberId)}><span>好人卡</span><strong>{myCards}</strong><small>跨圈跟着我</small></button></section><SectionTitle eyebrow="LIVE FROM THE CIRCLE" title={`${scopeTitle} · ${labels[filter]}`} action={`筛选 · ${list.length}`} onAction={onFilter}/><FeedList posts={list} onProfile={onProfile} onShare={onShare} onPost={onPost}/></>;
 }
 
 function DiscoverView({ posts: list, filter, setFilter, onSpeak, onProfile, onShare, onPost }: { posts: Post[]; filter: DiscoverFilter; setFilter: (filter: DiscoverFilter) => void; onSpeak: (intent?: ComposerType) => void; onProfile: (id?: string) => void; onShare: () => void; onPost: (id: number) => void }) {
@@ -284,13 +316,13 @@ function CircleView({ circle, account, posts: circlePosts, onSpeak, onProfile, o
 }
 
 function MeView({ onShare, onCard, onCreate, onSettings, onCircle, onArchive }: { onShare: () => void; onCard: () => void; onCreate: () => void; onSettings: () => void; onCircle: (id: string) => void; onArchive: (tab: ProfileTab) => void }) {
-  const me = memberById("qiaoye");
-  const myListings = demoDb.listings.filter((item) => item.memberId === me.id);
-  const activeNeed = myListings.find((item) => item.type === "need" && item.status === "active")!;
-  const activeOffer = myListings.find((item) => item.type === "offer" && item.status === "active")!;
-  const cardCount = demoDb.goodCards.filter((card) => card.toMemberId === me.id && card.visibility === "cross-circle").length;
-  const transactionCount = demoDb.transactions.filter((item) => item.providerId === me.id || item.receiverId === me.id).length;
-  return <><section className="profile-hero"><Character member={me}/><div><Pill color="cream">跨圈角色卡</Pill><h2>{me.name}</h2><p>{me.bio}</p></div><button onClick={onShare}>生成分享图</button></section><section className="passport-card"><div><span>COMMUNITY PASSPORT</span><h3>{cardCount} 张好人卡，完整故事都在档案里</h3><p>“{demoDb.goodCards.find((card) => card.toMemberId === me.id)?.story}”</p></div><button onClick={onCard}>＋ 发一张卡</button></section><SectionTitle eyebrow="FULL ARCHIVE" title="我的完整社区档案"/><div className="archive-grid"><button onClick={() => onArchive("cards")}><strong>{cardCount}</strong><span>好人卡故事</span><small>查看谁写下了什么</small></button><button onClick={() => onArchive("listings")}><strong>{myListings.length}</strong><span>需要 / 提供</span><small>包含暂停与过往内容</small></button><button onClick={() => onArchive("transactions")}><strong>{transactionCount}</strong><span>互助记录</span><small>公开、私密与更正状态</small></button></div><SectionTitle eyebrow="OPEN NOW" title="我目前的需要 / 提供" action="公开设置" onAction={onSettings}/><div className="my-board"><button className="my-need" onClick={() => onArchive("listings")}><Pill color="pink">我想要</Pill><h3>{activeNeed.title}</h3><span>{activeNeed.visibility === "cross-circle" ? "跨圈公开" : "圈内可见"} · 查看完整内容</span></button><button className="my-offer" onClick={() => onArchive("listings")}><Pill color="green">我可以给</Pill><h3>{activeOffer.title}</h3><span>{activeOffer.circleIds.length} 个圈可见 · 查看完整内容</span></button></div><SectionTitle eyebrow="MY CIRCLES" title="我的圈子" action="创建新圈" onAction={onCreate}/><div className="my-circles">{circles.map((circle) => { const account = accountFor(me.id, circle.id); return <button className="my-circle" key={circle.id} onClick={() => onCircle(circle.id)}><Character text={circle.short} color={circle.color} variant={circle.id === "qiao" ? "wave" : circle.id === "human" ? "crop" : "leaf"} small/><span><b>{circle.name}</b><small>{circle.role} · {circle.members} 人</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div></>;
+  const me = memberById(activeDb.currentMemberId);
+  const myListings = activeDb.listings.filter((item) => item.memberId === me.id);
+  const activeNeed = myListings.find((item) => item.type === "need" && item.status === "active");
+  const activeOffer = myListings.find((item) => item.type === "offer" && item.status === "active");
+  const cardCount = activeDb.goodCards.filter((card) => card.toMemberId === me.id && card.visibility === "cross-circle").length;
+  const transactionCount = activeDb.transactions.filter((item) => item.providerId === me.id || item.receiverId === me.id).length;
+  return <><section className="profile-hero"><Character member={me}/><div><Pill color="cream">跨圈角色卡</Pill><h2>{me.name}</h2><p>{me.bio}</p></div><button onClick={onShare}>生成分享图</button></section><section className="passport-card"><div><span>COMMUNITY PASSPORT</span><h3>{cardCount} 张好人卡，完整故事都在档案里</h3><p>“{activeDb.goodCards.find((card) => card.toMemberId === me.id)?.story ?? "新的感谢故事会出现在这里。"}”</p></div><button onClick={onCard}>＋ 发一张卡</button></section><SectionTitle eyebrow="FULL ARCHIVE" title="我的完整社区档案"/><div className="archive-grid"><button onClick={() => onArchive("cards")}><strong>{cardCount}</strong><span>好人卡故事</span><small>查看谁写下了什么</small></button><button onClick={() => onArchive("listings")}><strong>{myListings.length}</strong><span>需要 / 提供</span><small>包含暂停与过往内容</small></button><button onClick={() => onArchive("transactions")}><strong>{transactionCount}</strong><span>互助记录</span><small>公开、私密与更正状态</small></button></div><SectionTitle eyebrow="OPEN NOW" title="我目前的需要 / 提供" action="公开设置" onAction={onSettings}/><div className="my-board"><button className="my-need" onClick={() => onArchive("listings")}><Pill color="pink">我想要</Pill><h3>{activeNeed?.title ?? "还没有发布中的需要"}</h3><span>{activeNeed ? `${activeNeed.visibility === "cross-circle" ? "跨圈公开" : "圈内可见"} · 查看完整内容` : "可以从“说一句”开始"}</span></button><button className="my-offer" onClick={() => onArchive("listings")}><Pill color="green">我可以给</Pill><h3>{activeOffer?.title ?? "还没有发布中的提供"}</h3><span>{activeOffer ? `${activeOffer.circleIds.length} 个圈可见 · 查看完整内容` : "让大家发现你的能力"}</span></button></div><SectionTitle eyebrow="MY CIRCLES" title="我的圈子" action="创建新圈" onAction={onCreate}/><div className="my-circles">{circles.filter((circle) => me.circleIds.includes(circle.id)).map((circle) => { const account = accountFor(me.id, circle.id); return <button className="my-circle" key={circle.id} onClick={() => onCircle(circle.id)}><Character text={circle.short} color={circle.color} variant={circle.id === "qiao" ? "wave" : circle.id === "human" ? "crop" : "leaf"} small/><span><b>{circle.name}</b><small>{circle.role} · {circle.members} 人</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div></>;
 }
 
 function FeedList({ posts: list, onProfile, onShare, onPost }: { posts: Post[]; onProfile: (id?: string) => void; onShare: () => void; onPost: (id: number) => void }) {
@@ -301,30 +333,53 @@ function Modal({ children, onClose, label, wide = false }: { children: React.Rea
   return <div className="modal-backdrop" onMouseDown={onClose}><section className={`sheet ${wide ? "sheet-wide" : ""}`} role="dialog" aria-modal="true" aria-label={label} onMouseDown={(event) => event.stopPropagation()}><button className="close-button" onClick={onClose} aria-label="关闭">×</button>{children}</section></div>;
 }
 
-function ComposerSheet({ intent, setIntent, draft, setDraft, currentDraft, onClose, onConfirm, onNotice }: { intent: ComposerType; setIntent: (intent: ComposerType) => void; draft: boolean; setDraft: (draft: boolean) => void; currentDraft: (typeof draftCopy)[ComposerType]; onClose: () => void; onConfirm: () => void; onNotice: (message: string) => void }) {
+function ComposerSheet({ circleId, intent, setIntent, draft, setDraft, currentDraft, onClose, onConfirm, onNotice }: { circleId: string; intent: ComposerType; setIntent: (intent: ComposerType) => void; draft: boolean; setDraft: (draft: boolean) => void; currentDraft: (typeof draftCopy)[ComposerType]; onClose: () => void; onConfirm: (draft: AssistantDraft) => Promise<void>; onNotice: (message: string) => void }) {
   const [typing, setTyping] = useState(false);
-  return <Modal onClose={onClose} label="说一句"><div className="sheet-agent"><div className="mini-agent">◕‿◕</div><div><span>泡泡助手</span><h2>{draft ? "我整理成这样，对吗？" : "你想让什么流动起来？"}</h2><p>{draft ? "确认前可以修改，发布后也可以撤回。" : "先选一种，再像平常说话一样告诉我。"}</p></div></div>{!draft ? <><div className="intent-grid">{intents.map((item) => <button key={item.id} className={`intent intent-${item.color} ${intent === item.id ? "selected" : ""}`} onClick={() => setIntent(item.id)}><b>{item.icon}</b><span><strong>{item.label}</strong><small>{item.hint}</small></span></button>)}</div>{typing ? <label className="typing-box"><span>把事情写下来</span><textarea defaultValue={currentDraft.spoken}/></label> : <div className="voice-box"><span className="wave"><i/><i/><i/><i/><i/><i/><i/></span><p>{currentDraft.spoken}</p><button className="record-circle" onClick={() => onNotice("这是语音演示：已听见你的这句话")} aria-label="开始录音">●</button></div>}<button className="primary-button" onClick={() => setDraft(true)}>让泡泡助手整理一下 <b>→</b></button><button className="text-link" onClick={() => setTyping(!typing)}>{typing ? "切换回语音演示" : "也可以切换为键盘输入"}</button></> : <><div className={`draft-card draft-${intents.find((item) => item.id === intent)?.color ?? "yellow"}`}><Pill color="cream">草稿 · 可修改</Pill><h3>{currentDraft.title}</h3><p>{currentDraft.detail}</p><div>{currentDraft.footer}</div></div><label className="visibility-row"><span>让谁看见</span><select defaultValue={intent === "card" ? "public" : "circle"}><option value="circle">相关圈子</option><option value="public">跨圈公开</option><option value="mystery">神秘记录</option></select></label><p className="soft-note">发布不等于强制履约。任何人都可以拒绝、修改或撤回。</p><div className="sheet-actions"><button className="secondary-button" onClick={() => setDraft(false)}>返回修改</button><button className="primary-button" onClick={onConfirm}>确认发布 <b>→</b></button></div></>}</Modal>;
+  const [text, setText] = useState(currentDraft.spoken);
+  const [assistantDraft, setAssistantDraft] = useState<AssistantDraft | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  async function analyze() {
+    try {
+      setAnalyzing(true);
+      const response=await fetch("/api/assistant/draft",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({intent,text,circleId})});
+      const result=await response.json() as {draft?:AssistantDraft;error?:string}; if(!response.ok||!result.draft) throw new Error(result.error||"整理失败");
+      setAssistantDraft(result.draft); setDraft(true);
+    } catch(error) { onNotice(error instanceof Error ? error.message : "泡泡助手暂时没整理成功"); }
+    finally { setAnalyzing(false); }
+  }
+
+  function setVisibility(value:string) {
+    if (!assistantDraft) return;
+    const visibility = intent === "record" ? (value === "mystery" ? "mystery" : value === "private" ? "private" : "public") : intent === "card" ? (value === "private" ? "hidden" : "cross-circle") : value === "public" ? "cross-circle" : "circle";
+    setAssistantDraft({...assistantDraft,fields:{...assistantDraft.fields,visibility}});
+  }
+
+  const visibleDraft=assistantDraft ?? {intent,title:currentDraft.title,detail:currentDraft.detail,footer:currentDraft.footer,fields:{circleId},source:"local" as const};
+  return <Modal onClose={onClose} label="说一句"><div className="sheet-agent"><div className="mini-agent">◕‿◕</div><div><span>泡泡助手</span><h2>{draft ? "我整理成这样，对吗？" : "你想让什么流动起来？"}</h2><p>{draft ? "确认前可以修改，发布后也可以撤回。" : "先选一种，再像平常说话一样告诉我。"}</p></div></div>{!draft ? <><div className="intent-grid">{intents.map((item) => <button key={item.id} className={`intent intent-${item.color} ${intent === item.id ? "selected" : ""}`} onClick={() => setIntent(item.id)}><b>{item.icon}</b><span><strong>{item.label}</strong><small>{item.hint}</small></span></button>)}</div>{typing ? <label className="typing-box"><span>把事情写下来</span><textarea value={text} onChange={(event)=>setText(event.target.value)} maxLength={2000}/></label> : <div className="voice-box"><span className="wave"><i/><i/><i/><i/><i/><i/><i/></span><p>{text}</p><button className="record-circle" onClick={() => onNotice("语音接口已留好位置；现在先使用键盘输入")} aria-label="开始录音">●</button></div>}<button className="primary-button" disabled={analyzing||!text.trim()} onClick={analyze}>{analyzing?"泡泡助手正在整理…":"让泡泡助手整理一下"} <b>→</b></button><button className="text-link" onClick={() => setTyping(!typing)}>{typing ? "切换回语音入口" : "切换为键盘输入"}</button></> : <><div className={`draft-card draft-${intents.find((item) => item.id === intent)?.color ?? "yellow"}`}><Pill color="cream">草稿 · 可修改</Pill><h3>{visibleDraft.title}</h3><p>{visibleDraft.detail}</p><div>{visibleDraft.footer}</div></div><label className="visibility-row"><span>让谁看见</span><select defaultValue={intent === "card" ? "public" : "circle"} onChange={(event)=>setVisibility(event.target.value)}><option value="circle">相关圈子</option><option value="public">跨圈公开</option>{intent === "record" && <option value="mystery">神秘记录</option>}<option value="private">仅自己 / 当事人</option></select></label><p className="soft-note">发布不等于强制履约。任何人都可以拒绝、修改或撤回。</p><div className="sheet-actions"><button className="secondary-button" onClick={() => setDraft(false)}>返回修改</button><button className="primary-button" disabled={!assistantDraft} onClick={() => assistantDraft && onConfirm(assistantDraft)}>确认发布 <b>→</b></button></div></>}</Modal>;
 }
 
-function ShareSheet({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+function ShareSheet({ onClose, onDone }: { onClose: () => void; onDone: () => Promise<void> }) {
   const cells = Array.from({length:81},(_,index)=>(index*7+Math.floor(index/9)*3)%5<2);
-  const myListings = demoDb.listings.filter((listing) => listing.memberId === "qiaoye" && listing.status === "active");
-  return <Modal onClose={onClose} label="分享图预览"><span className="sheet-kicker">微信群分享图预览</span><div className="share-poster"><div className="poster-top"><Character member={memberById("qiaoye")}/><div><span>旅居交换者</span><h2>俏也的流动清单</h2></div></div><div className="poster-panel poster-need"><b>我目前想要</b>{myListings.filter((item) => item.type === "need").map((item) => <p key={item.id}>{item.title}</p>)}</div><div className="poster-panel poster-offer"><b>我目前可以给</b>{myListings.filter((item) => item.type === "offer").map((item) => <p key={item.id}>{item.title}</p>)}</div><div className="poster-bottom"><div><b>可以问，也可以拒绝。</b><span>来看看我们还能怎样交换</span></div><div className="fake-qr">{cells.map((on,index) => <i key={index} className={on ? "on" : ""}/>)}</div></div></div><button className="primary-button" onClick={onDone}>准备好，分享到微信群</button></Modal>;
+  const myListings = activeDb.listings.filter((listing) => listing.memberId === activeDb.currentMemberId && listing.status === "active");
+  const me=memberById(activeDb.currentMemberId);
+  return <Modal onClose={onClose} label="分享预览"><span className="sheet-kicker">微信群分享预览</span><div className="share-poster"><div className="poster-top"><Character member={me}/><div><span>{me.role}</span><h2>{me.name}的流动清单</h2></div></div><div className="poster-panel poster-need"><b>我目前想要</b>{myListings.filter((item) => item.type === "need").map((item) => <p key={item.id}>{item.title}</p>)}</div><div className="poster-panel poster-offer"><b>我目前可以给</b>{myListings.filter((item) => item.type === "offer").map((item) => <p key={item.id}>{item.title}</p>)}</div><div className="poster-bottom"><div><b>可以问，也可以拒绝。</b><span>来看看我们还能怎样交换</span></div><div className="fake-qr">{cells.map((on,index) => <i key={index} className={on ? "on" : ""}/>)}</div></div></div><button className="primary-button" onClick={onDone}>分享这份流动清单</button></Modal>;
 }
 
-function ProfileSheet({ member, activeCircleId, initialTab, onClose, onNotice }: { member: Member; activeCircleId: string; initialTab: ProfileTab; onClose: () => void; onNotice: (message: string) => void }) {
+function ProfileSheet({ member, activeCircleId, initialTab, onClose, onNotice, onChanged }: { member: Member; activeCircleId: string; initialTab: ProfileTab; onClose: () => void; onNotice: (message: string) => void; onChanged: () => Promise<void> }) {
   const [contact, setContact] = useState(false);
   const [tab, setTab] = useState<ProfileTab>(initialTab);
-  const isSelf = member.id === "qiaoye";
-  const accounts = demoDb.accounts.filter((item) => item.memberId === member.id);
+  const isSelf = member.id === activeDb.currentMemberId;
+  const accounts = activeDb.accounts.filter((item) => item.memberId === member.id);
   const activeAccount = accounts.find((item) => item.circleId === activeCircleId) ?? accounts[0] ?? accountFor(member.id, activeCircleId);
   const activeCircle = circleById(activeAccount.circleId);
-  const cards = demoDb.goodCards.filter((card) => card.toMemberId === member.id && (card.visibility === "cross-circle" || isSelf));
-  const listings = demoDb.listings.filter((listing) => listing.memberId === member.id);
-  const transactions = demoDb.transactions.filter((transaction) => (transaction.providerId === member.id || transaction.receiverId === member.id) && (isSelf || transaction.visibility === "public"));
+  const cards = activeDb.goodCards.filter((card) => card.toMemberId === member.id && (card.visibility === "cross-circle" || isSelf));
+  const listings = activeDb.listings.filter((listing) => listing.memberId === member.id);
+  const transactions = activeDb.transactions.filter((transaction) => (transaction.providerId === member.id || transaction.receiverId === member.id) && (isSelf || transaction.visibility === "public"));
+  async function changeListing(id:string,status:"active"|"paused"|"closed"){const response=await fetch(`/api/listings/${id}`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({status})});const result=await response.json() as {error?:string};if(!response.ok){onNotice(result.error||"更新失败");return;}await onChanged();onNotice(status==="active"?"内容已重新发布":"内容已暂停");}
+  async function rejectTransaction(id:string){if(!window.confirm("确认拒绝或撤销这笔记录？双方额度会恢复。"))return;const response=await fetch(`/api/transactions/${id}`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({action:"reject"})});const result=await response.json() as {error?:string};if(!response.ok){onNotice(result.error||"更新失败");return;}await onChanged();onNotice("记录已撤销，双方额度已经恢复");}
   const statusLabel = { active: "进行中", paused: "已暂停", closed: "已结束" } as const;
   const transactionStatus = { confirmed: "已确认", corrected: "已更正", rejected: "已撤销" } as const;
-  return <Modal onClose={onClose} label={`${member.name}的完整社区档案`} wide><div className={`role-card role-${member.color}`}><Character member={member}/><div><Pill color="cream">{isSelf ? "我的完整档案" : `同圈成员 · ${member.circleIds.length} 个圈`}</Pill><h2>{member.name}</h2><p>{member.role} · {member.bio}</p></div></div><div className="profile-numbers"><div><b>{activeAccount.balance > 0 ? "+" : ""}{activeAccount.balance}</b><span>{activeCircle.name} · 当前额度</span></div><div><b>{activeAccount.given}</b><span>在本圈给出过</span></div><div><b>{activeAccount.received}</b><span>在本圈收到过</span></div></div><div className="profile-tabs" role="tablist"><button className={tab === "cards" ? "active" : ""} onClick={() => setTab("cards")}>好人卡 <b>{cards.length}</b></button><button className={tab === "listings" ? "active" : ""} onClick={() => setTab("listings")}>需要 / 提供 <b>{listings.length}</b></button><button className={tab === "transactions" ? "active" : ""} onClick={() => setTab("transactions")}>互助记录 <b>{transactions.length}</b></button></div>{tab === "cards" && <div className="archive-list card-archive">{cards.map((card) => { const from = memberById(card.fromMemberId); const circle = circleById(card.circleId); return <article key={card.id}><header><Character member={from} small/><span><b>{from.name} 写给 {member.name}</b><small>{card.date} · {circle.name}</small></span><Pill color="coral">好人卡</Pill></header><p>“{card.story}”</p><div className="chip-row">{card.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div></article>; })}</div>}{tab === "listings" && <div className="archive-list listing-archive">{listings.map((listing) => <article key={listing.id} className={listing.type === "need" ? "archive-need" : "archive-offer"}><header><Pill color={listing.type === "need" ? "pink" : "green"}>{listing.type === "need" ? "我想要" : "我可以给"}</Pill><span className={`status status-${listing.status}`}>{statusLabel[listing.status]}</span></header><h3>{listing.title}</h3><p>{listing.detail}</p><dl><div><dt>时间</dt><dd>{listing.time}</dd></div><div><dt>地点</dt><dd>{listing.location}</dd></div><div><dt>参考</dt><dd>{listing.reference}</dd></div><div><dt>范围</dt><dd>{listing.visibility === "cross-circle" ? "跨圈公开" : listing.circleIds.map((id) => circleById(id).name).join("、")}</dd></div></dl></article>)}</div>}{tab === "transactions" && <div className="archive-list transaction-archive">{transactions.map((transaction) => { const provider = memberById(transaction.providerId); const receiver = memberById(transaction.receiverId); const circle = circleById(transaction.circleId); return <article key={transaction.id}><header><div><Pill color={transaction.visibility === "private" ? "blue" : "yellow"}>{transaction.visibility === "private" ? "仅自己可见" : "圈内公开"}</Pill><span className={`status status-${transaction.status}`}>{transactionStatus[transaction.status]}</span></div><strong>{transaction.amount} {circle.currency}</strong></header><h3>{transaction.title}</h3><p>{transaction.story}</p><footer><span>{provider.name} → {receiver.name}</span><span>{transaction.happenedAt} · {circle.name}</span></footer></article>; })}{transactions.length === 0 && <div className="empty-archive">当前没有可以向你公开的交易记录。</div>}</div>}<SectionTitle eyebrow="CIRCLE ACCOUNTS" title="各圈额度"/><div className="account-strip">{accounts.map((account) => { const circle = circleById(account.circleId); return <div key={account.circleId}><span>{circle.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance} {circle.currency}</b><small>给出 {account.given} · 收到 {account.received}</small></div>; })}</div>{contact ? <div className="contact-reveal"><span>微信号</span><b>{member.wechat}</b><button onClick={() => onNotice("微信号已复制（静态演示）")}>复制</button></div> : <button className="primary-button" onClick={() => setContact(true)}>联系{member.name}，查看微信号</button>}<p className="soft-note">看到“可以提供”不代表对方必须答应。私密交易与隐藏内容只对本人可见。</p></Modal>;
+  return <Modal onClose={onClose} label={`${member.name}的完整社区档案`} wide><div className={`role-card role-${member.color}`}><Character member={member}/><div><Pill color="cream">{isSelf ? "我的完整档案" : `同圈成员 · ${member.circleIds.length} 个圈`}</Pill><h2>{member.name}</h2><p>{member.role} · {member.bio}</p></div></div><div className="profile-numbers"><div><b>{activeAccount.balance > 0 ? "+" : ""}{activeAccount.balance}</b><span>{activeCircle.name} · 当前额度</span></div><div><b>{activeAccount.given}</b><span>在本圈给出过</span></div><div><b>{activeAccount.received}</b><span>在本圈收到过</span></div></div><div className="profile-tabs" role="tablist"><button className={tab === "cards" ? "active" : ""} onClick={() => setTab("cards")}>好人卡 <b>{cards.length}</b></button><button className={tab === "listings" ? "active" : ""} onClick={() => setTab("listings")}>需要 / 提供 <b>{listings.length}</b></button><button className={tab === "transactions" ? "active" : ""} onClick={() => setTab("transactions")}>互助记录 <b>{transactions.length}</b></button></div>{tab === "cards" && <div className="archive-list card-archive">{cards.map((card) => { const from = memberById(card.fromMemberId); const circle = circleById(card.circleId); return <article key={card.id}><header><Character member={from} small/><span><b>{from.name} 写给 {member.name}</b><small>{card.date} · {circle.name}</small></span><Pill color="coral">好人卡</Pill></header><p>“{card.story}”</p><div className="chip-row">{card.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div></article>; })}</div>}{tab === "listings" && <div className="archive-list listing-archive">{listings.map((listing) => <article key={listing.id} className={listing.type === "need" ? "archive-need" : "archive-offer"}><header><Pill color={listing.type === "need" ? "pink" : "green"}>{listing.type === "need" ? "我想要" : "我可以给"}</Pill><span className={`status status-${listing.status}`}>{statusLabel[listing.status]}</span>{isSelf&&listing.status!=="closed"&&<button onClick={()=>changeListing(listing.id,listing.status==="active"?"paused":"active")}>{listing.status==="active"?"暂停":"重新发布"}</button>}</header><h3>{listing.title}</h3><p>{listing.detail}</p><dl><div><dt>时间</dt><dd>{listing.time}</dd></div><div><dt>地点</dt><dd>{listing.location}</dd></div><div><dt>参考</dt><dd>{listing.reference}</dd></div><div><dt>范围</dt><dd>{listing.visibility === "cross-circle" ? "跨圈公开" : listing.circleIds.map((id) => circleById(id).name).join("、")}</dd></div></dl></article>)}</div>}{tab === "transactions" && <div className="archive-list transaction-archive">{transactions.map((transaction) => { const provider = memberById(transaction.providerId); const receiver = memberById(transaction.receiverId); const circle = circleById(transaction.circleId); return <article key={transaction.id}><header><div><Pill color={transaction.visibility === "private" ? "blue" : "yellow"}>{transaction.visibility === "private" ? "仅自己可见" : "圈内公开"}</Pill><span className={`status status-${transaction.status}`}>{transactionStatus[transaction.status]}</span>{isSelf&&transaction.status!=="rejected"&&<button onClick={()=>rejectTransaction(transaction.id)}>拒绝 / 撤销</button>}</div><strong>{transaction.amount} {circle.currency}</strong></header><h3>{transaction.title}</h3><p>{transaction.story}</p><footer><span>{provider.name} → {receiver.name}</span><span>{transaction.happenedAt} · {circle.name}</span></footer></article>; })}{transactions.length === 0 && <div className="empty-archive">当前没有可以向你公开的交易记录。</div>}</div>}<SectionTitle eyebrow="CIRCLE ACCOUNTS" title="各圈额度"/><div className="account-strip">{accounts.map((account) => { const circle = circleById(account.circleId); return <div key={account.circleId}><span>{circle.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance} {circle.currency}</b><small>给出 {account.given} · 收到 {account.received}</small></div>; })}</div>{contact ? <div className="contact-reveal"><span>微信号</span><b>{member.wechat}</b><button onClick={async()=>{await navigator.clipboard.writeText(member.wechat);onNotice("微信号已复制");}}>复制</button></div> : <button className="primary-button" onClick={() => setContact(true)}>联系{member.name}，查看微信号</button>}<p className="soft-note">看到“可以提供”不代表对方必须答应。私密交易与隐藏内容只对本人可见。</p></Modal>;
 }
 
 function CircleIntroSheet({ circle, onRules, onInvite, onClose }: { circle: Circle; onRules: () => void; onInvite: () => void; onClose: () => void }) {
@@ -337,17 +392,24 @@ function RulesSheet({ circle, onClose }: { circle: Circle; onClose: () => void }
 
 function MembersSheet({ circle, onProfile, onInvite, onClose }: { circle: Circle; onProfile: (id?: string) => void; onInvite: () => void; onClose: () => void }) {
   const circleMembers = circle.memberIds.map((id) => memberById(id));
-  return <Modal onClose={onClose} label={`${circle.name}全部成员`} wide><div className="sheet-heading member-heading"><Pill color={circle.color}>{circle.members} 位成员</Pill><h2>{circle.name}的成员地图</h2><p>这里展示的是最近活跃的角色。点击任意成员，可以看到对方愿意公开的需要、提供、好人卡与联系方式。</p></div><div className="member-list">{circleMembers.map((member,index) => { const account = accountFor(member.id, circle.id); const offer = demoDb.listings.find((listing) => listing.memberId === member.id && listing.type === "offer" && listing.status === "active"); return <button key={member.id} onClick={() => onProfile(member.id)}><span className="member-index">0{index+1}</span><Character member={member}/><span><b>{member.name}</b><small>{member.role}</small><p>{offer?.title ?? member.bio}</p></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div><button className="primary-button" onClick={onInvite}>＋ 邀请一位新成员</button></Modal>;
+  return <Modal onClose={onClose} label={`${circle.name}全部成员`} wide><div className="sheet-heading member-heading"><Pill color={circle.color}>{circle.members} 位成员</Pill><h2>{circle.name}的成员地图</h2><p>这里展示的是最近活跃的角色。点击任意成员，可以看到对方愿意公开的需要、提供、好人卡与联系方式。</p></div><div className="member-list">{circleMembers.map((member,index) => { const account = accountFor(member.id, circle.id); const offer = activeDb.listings.find((listing) => listing.memberId === member.id && listing.type === "offer" && listing.status === "active"); return <button key={member.id} onClick={() => onProfile(member.id)}><span className="member-index">0{index+1}</span><Character member={member}/><span><b>{member.name}</b><small>{member.role}</small><p>{offer?.title ?? member.bio}</p></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div><button className="primary-button" onClick={onInvite}>＋ 邀请一位新成员</button></Modal>;
 }
 
 function InviteSheet({ circle, onClose, onNotice }: { circle: Circle; onClose: () => void; onNotice: (message: string) => void }) {
   const [method, setMethod] = useState<"link" | "poster">("link");
-  return <Modal onClose={onClose} label={`邀请加入${circle.name}`}><div className="sheet-heading"><Pill color={circle.color}>{circle.joining}</Pill><h2>邀请一个认识的人，加入 {circle.name}</h2><p>{circle.invitation}</p></div><div className="invite-tabs"><button className={method === "link" ? "active" : ""} onClick={() => setMethod("link")}>邀请链接</button><button className={method === "poster" ? "active" : ""} onClick={() => setMethod("poster")}>微信邀请图</button></div>{method === "link" ? <div className="invite-link"><span>7 天有效 · 仅可使用 1 次</span><b>flow-circle.site/join/{circle.id}-7K2</b><button onClick={() => onNotice("邀请链接已复制（静态演示）")}>复制链接</button></div> : <div className={`mini-invite-poster hero-${circle.color}`}><div className={`camp-flag flag-${circle.color}`}>{circle.short}</div><span>来自俏也的邀请</span><h3>来 {circle.name}<br/>看看我们还能怎样互相帮助</h3><p>可以问，也可以拒绝。</p><div className="mini-code">▦</div></div>}<div className="invite-checklist"><b>受邀者会先看到</b><span>✓ 圈子介绍与运行方式</span><span>✓ 什么会被记录、谁能看见</span><span>✓ 可以拒绝具体请求，也可以退出</span></div><button className="primary-button" onClick={() => onNotice(method === "link" ? "邀请链接已发到微信（静态演示）" : "邀请图已准备好（静态演示）")}>{method === "link" ? "发到微信" : "保存邀请图"}</button></Modal>;
+  const [inviteUrl,setInviteUrl]=useState(""); const [creating,setCreating]=useState(false);
+  async function createInvite(){try{setCreating(true);const response=await fetch("/api/invitations",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({circleId:circle.id})});const result=await response.json() as {url?:string;error?:string};if(!response.ok||!result.url)throw new Error(result.error||"邀请创建失败");setInviteUrl(result.url);return result.url;}catch(error){onNotice(error instanceof Error?error.message:"邀请创建失败");return "";}finally{setCreating(false);}}
+  async function copyInvite(){const url=inviteUrl||await createInvite();if(!url)return;await navigator.clipboard.writeText(url);onNotice("邀请链接已复制");}
+  async function shareInvite(){const url=inviteUrl||await createInvite();if(!url)return;const canShare=typeof navigator.share==="function";if(canShare)await navigator.share({title:`加入${circle.name}`,text:circle.tagline,url});else await navigator.clipboard.writeText(url);onNotice(canShare?"邀请已经交给系统分享":"邀请链接已复制，可以粘贴到微信");}
+  return <Modal onClose={onClose} label={`邀请加入${circle.name}`}><div className="sheet-heading"><Pill color={circle.color}>{circle.joining}</Pill><h2>邀请一个认识的人，加入 {circle.name}</h2><p>{circle.invitation}</p></div><div className="invite-tabs"><button className={method === "link" ? "active" : ""} onClick={() => setMethod("link")}>邀请链接</button><button className={method === "poster" ? "active" : ""} onClick={() => setMethod("poster")}>微信邀请图</button></div>{method === "link" ? <div className="invite-link"><span>7 天有效 · 仅可使用 1 次</span><b>{inviteUrl||"点击下方按钮生成安全邀请链接"}</b><button disabled={creating} onClick={copyInvite}>{creating?"正在生成…":inviteUrl?"复制链接":"生成并复制"}</button></div> : <div className={`mini-invite-poster hero-${circle.color}`}><div className={`camp-flag flag-${circle.color}`}>{circle.short}</div><span>来自圈内伙伴的邀请</span><h3>来 {circle.name}<br/>看看我们还能怎样互相帮助</h3><p>可以问，也可以拒绝。</p><div className="mini-code">▦</div></div>}<div className="invite-checklist"><b>受邀者会先看到</b><span>✓ 圈子介绍与运行方式</span><span>✓ 什么会被记录、谁能看见</span><span>✓ 可以拒绝具体请求，也可以退出</span></div><button className="primary-button" disabled={creating} onClick={shareInvite}>{method === "link" ? "分享邀请" : "分享邀请图与链接"}</button></Modal>;
 }
 
-function CreateCircleView({ onExit, onDone }: { onExit: () => void; onDone: (name: string) => void }) {
+type CreateCircleInput = { name:string; short:string; currency:string; tagline:string; scene:string; joining:string; visibility:string; needs:boolean; cards:boolean; mystery:boolean; allowExit:boolean; referenceName:string; referenceValue:string };
+function CreateCircleView({ onExit, onDone }: { onExit: () => void; onDone: (input: CreateCircleInput) => Promise<void> }) {
   const [step, setStep] = useState(1);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const [name, setName] = useState("周末手作营地");
   const [short, setShort] = useState("作");
   const [currency, setCurrency] = useState("木屑");
@@ -364,7 +426,7 @@ function CreateCircleView({ onExit, onDone }: { onExit: () => void; onDone: (nam
   const steps = ["圈子身份", "互助设置", "成员与边界", "预览确认"];
   const sceneLabels: Record<string,string> = { friends: "熟人邀请", learning: "共学小组", place: "线下社区" };
 
-  if (saved) return <section className="create-success"><div className="success-burst">✓</div><Pill color="green">草稿已保存 · STATIC DEMO</Pill><h2>{name}<br/>准备好了。</h2><p>这个静态演示不会真的建立成员账户或发送邀请。正式产品中，草稿会先进入管理员检查，再开放邀请链接。</p><div className="created-passport"><Character text={short || "圈"} color="green" variant="wave"/><div><span>新圈草稿</span><h3>{name}</h3><p>{currency} · {sceneLabels[scene]} · {joining === "direct" ? "受邀直接加入" : "管理员审批"}</p></div><b>草稿</b></div><div className="create-actions"><button className="secondary-button" onClick={() => { setSaved(false); setStep(4); }}>返回修改</button><button className="primary-button" onClick={onExit}>回到我的圈子</button></div></section>;
+  if (saved) return <section className="create-success"><div className="success-burst">✓</div><Pill color="green">圈子已创建 · READY</Pill><h2>{name}<br/>准备好了。</h2><p>成员关系、初始账户和圈子规则已经保存。回到圈子后，可以生成一条真实的限时邀请链接。</p><div className="created-passport"><Character text={short || "圈"} color="green" variant="wave"/><div><span>新的圈子</span><h3>{name}</h3><p>{currency} · {sceneLabels[scene]} · {joining === "direct" ? "受邀直接加入" : "管理员审批"}</p></div><b>已创建</b></div><div className="create-actions"><button className="primary-button" onClick={onExit}>回到我的圈子</button></div></section>;
 
   return <section className="create-page">
     <div className="create-intro"><div><Pill color="green">任何人都可以创建</Pill><h2>给一段真实关系，<br/>画出清楚的边界。</h2><p>圈子不是一种新产品，而是一组独立的成员、规则和互助账户。</p></div><button onClick={onExit}>暂时退出</button></div>
@@ -378,9 +440,9 @@ function CreateCircleView({ onExit, onDone }: { onExit: () => void; onDone: (nam
 
       {step === 3 && <><div className="create-heading"><span>STEP 03 · GOVERNANCE</span><h2>谁能加入，什么不公开？</h2><p>先把拒绝、隐私和退出写进规则，再开始邀请成员。</p></div><span className="form-label">新成员怎么加入</span><div className="create-choice-row two"><button className={joining === "direct" ? "active" : ""} onClick={() => setJoining("direct")}><b>种子期 · 受邀直接加入</b><small>适合彼此认识的小范围启动</small></button><button className={joining === "approval" ? "active" : ""} onClick={() => setJoining("approval")}><b>扩大期 · 管理员审批</b><small>适合关系正在向外扩展的圈子</small></button></div><span className="form-label">互助记录默认可见范围</span><div className="visibility-choice"><button className={visibility === "public" ? "active" : ""} onClick={() => setVisibility("public")}><b>圈内公开</b><small>人物、故事和额度对本圈可见</small></button><button className={visibility === "private" ? "active" : ""} onClick={() => setVisibility("private")}><b>仅当事人</b><small>需要时再由记录者主动公开</small></button></div><div className="boundary-checks"><label><span><b>允许神秘记录</b><small>隐藏人物和具体故事，只留下互助类型、时间和额度</small></span><input type="checkbox" checked={mystery} onChange={(event) => setMystery(event.target.checked)}/></label><label><span><b>成员可以暂停或退出</b><small>退出前可下载自己的记录，不设置惩罚</small></span><input type="checkbox" checked={allowExit} onChange={(event) => setAllowExit(event.target.checked)}/></label><label><span><b>明确不与人民币兑换</b><small>这是创建圈子的必要边界，不能关闭</small></span><input type="checkbox" checked readOnly/></label><label><span><b>明确不做贡献排名</b><small>负余额也不是信用污点，不能关闭</small></span><input type="checkbox" checked readOnly/></label></div></>}
 
-      {step === 4 && <><div className="create-heading"><span>STEP 04 · REVIEW</span><h2>邀请别人之前，先完整看一遍。</h2><p>这张预览只展示建圈所需的最小规则；创建后仍可以继续讨论和修改。</p></div><article className="circle-draft-preview"><header><div className="draft-flag"><span>{short || "圈"}</span></div><div><Pill color="cream">新圈草稿 · {sceneLabels[scene]}</Pill><h2>{name || "未命名圈子"}</h2><p>{tagline || "还没有写一句话介绍"}</p></div></header><div className="draft-summary"><div><span>互助额度</span><b>{currency || "未命名"}</b><small>互助账户 · 不兑换人民币</small></div><div><span>加入方式</span><b>{joining === "direct" ? "受邀直接加入" : "管理员审批"}</b><small>{visibility === "public" ? "记录默认圈内公开" : "记录默认仅当事人"}</small></div><div><span>第一项参考</span><b>{referenceName}</b><small>{referenceValue}</small></div></div><ul><li>只记录已经完成的互助</li>{needs && <li>允许发布需要 / 提供，发布不改变余额</li>}{cards && <li>允许发送好人卡，好人卡不产生债务</li>}{mystery && <li>敏感互助可以使用神秘记录</li>}{allowExit && <li>成员可以暂停或退出并带走自己的记录</li>}</ul><footer><span>可以开口，也可以拒绝。</span><b>NO PRESSURE · NO RANKING</b></footer></article><div className="review-warning"><b>静态演示提示</b><p>点击“保存圈子草稿”只会展示创建完成状态，不会建立真实数据库、账户或邀请链接。</p></div></>}
+      {step === 4 && <><div className="create-heading"><span>STEP 04 · REVIEW</span><h2>邀请别人之前，先完整看一遍。</h2><p>这张预览只展示建圈所需的最小规则；创建后仍可以继续讨论和修改。</p></div><article className="circle-draft-preview"><header><div className="draft-flag"><span>{short || "圈"}</span></div><div><Pill color="cream">新圈预览 · {sceneLabels[scene]}</Pill><h2>{name || "未命名圈子"}</h2><p>{tagline || "还没有写一句话介绍"}</p></div></header><div className="draft-summary"><div><span>互助额度</span><b>{currency || "未命名"}</b><small>互助账户 · 不兑换人民币</small></div><div><span>加入方式</span><b>{joining === "direct" ? "受邀直接加入" : "管理员审批"}</b><small>{visibility === "public" ? "记录默认圈内公开" : "记录默认仅当事人"}</small></div><div><span>第一项参考</span><b>{referenceName}</b><small>{referenceValue}</small></div></div><ul><li>只记录已经完成的互助</li>{needs && <li>允许发布需要 / 提供，发布不改变余额</li>}{cards && <li>允许发送好人卡，好人卡不产生债务</li>}{mystery && <li>敏感互助可以使用神秘记录</li>}{allowExit && <li>成员可以暂停或退出并带走自己的记录</li>}</ul><footer><span>可以开口，也可以拒绝。</span><b>NO PRESSURE · NO RANKING</b></footer></article>{error && <div className="review-warning"><b>还没有创建成功</b><p>{error}</p></div>}</>}
 
-      <div className="create-footer"><button className="secondary-button" onClick={() => step === 1 ? onExit() : setStep(step - 1)}>{step === 1 ? "取消" : "← 上一步"}</button>{step < 4 ? <button className="primary-button" onClick={() => setStep(step + 1)}>继续：{steps[step]} →</button> : <button className="primary-button" onClick={() => { onDone(name || "新圈子"); setSaved(true); }}>保存圈子草稿</button>}</div>
+      <div className="create-footer"><button className="secondary-button" onClick={() => step === 1 ? onExit() : setStep(step - 1)}>{step === 1 ? "取消" : "← 上一步"}</button>{step < 4 ? <button className="primary-button" onClick={() => setStep(step + 1)}>继续：{steps[step]} →</button> : <button className="primary-button" disabled={saving} onClick={async () => { try { setSaving(true); setError(""); await onDone({name:name||"新圈子",short,currency,tagline,scene,joining,visibility,needs,cards,mystery,allowExit,referenceName,referenceValue}); setSaved(true); } catch(error) { setError(error instanceof Error?error.message:"创建失败"); } finally { setSaving(false); } }}>{saving?"正在创建…":"创建圈子"}</button>}</div>
     </div>
   </section>;
 }
@@ -400,20 +462,21 @@ function PostSheet({ post, onProfile, onShare, onClose }: { post: Post; onProfil
   const circle = circles.find((item) => item.id === post.circleId) ?? circles[0];
   const details: { label: string; value: string }[] = [{ label: "所属圈子", value: circle.name }];
   if (post.source === "listing") {
-    const listing = demoDb.listings.find((item) => item.id === post.sourceId)!;
+    const listing = activeDb.listings.find((item) => item.id === post.sourceId)!;
     details.push({ label: "时间 / 地点", value: `${listing.time} · ${listing.location}` }, { label: "参考", value: listing.reference }, { label: "可见范围", value: listing.visibility === "cross-circle" ? "跨圈公开" : "相关圈子" });
   } else if (post.source === "transaction") {
-    const transaction = demoDb.transactions.find((item) => item.id === post.sourceId)!;
+    const transaction = activeDb.transactions.find((item) => item.id === post.sourceId)!;
     const status = transaction.status === "confirmed" ? "已确认" : transaction.status === "corrected" ? "已更正" : "已撤销";
     details.push({ label: "发生 / 记录", value: `${transaction.happenedAt} · ${transaction.recordedAt} 记录` }, { label: "额度与状态", value: `${transaction.amount} ${circle.currency} · ${status}` }, { label: "可见范围", value: transaction.visibility === "mystery" ? "圈内神秘记录" : transaction.visibility === "private" ? "仅当事人" : "圈内公开" });
   } else {
-    const card = demoDb.goodCards.find((item) => item.id === post.sourceId)!;
+    const card = activeDb.goodCards.find((item) => item.id === post.sourceId)!;
     details.push({ label: "写下日期", value: card.date }, { label: "可见范围", value: card.visibility === "cross-circle" ? "跨圈公开" : "接收者已隐藏" }, { label: "余额影响", value: "不产生余额，也不需要偿还" });
   }
   return <Modal onClose={onClose} label="动态详情"><div className={`post-detail detail-${post.color}`}><div className="post-detail-head"><Character text={post.avatar} color={post.color} variant={post.avatarVariant}/><div><Pill color="cream">{post.badge}</Pill><h2>{post.person}</h2><p>{post.role}</p></div></div><p className="post-detail-copy">{post.text}</p><div className="chip-row">{post.chips.map((chip) => <span key={chip}>#{chip}</span>)}</div></div><div className="detail-meta">{details.map((detail) => <div key={detail.label}><span>{detail.label}</span><b>{detail.value}</b></div>)}<div><span>下一步</span><b>{post.kind === "need" || post.kind === "offer" ? "进入主页后微信联系" : "可以查看成员完整档案"}</b></div></div><div className="sheet-actions">{post.memberId ? <button className="secondary-button" onClick={onProfile}>查看成员主页</button> : <button className="secondary-button" onClick={onClose}>知道了</button>}<button className="primary-button" onClick={onShare}>生成分享图</button></div></Modal>;
 }
 
-function SettingsSheet({ onClose, onNotice }: { onClose: () => void; onNotice: (message: string) => void }) {
-  const [cards, setCards] = useState(true); const [needs, setNeeds] = useState(true); const [hidden, setHidden] = useState(false);
-  return <Modal onClose={onClose} label="跨圈公开设置"><div className="sheet-heading"><Pill color="blue">我的公开边界</Pill><h2>哪些内容跟着我跨圈出现</h2><p>圈内余额和交易不会自动跨圈。你也可以随时隐藏某一张好人卡或一条帖子。</p></div><div className="toggle-list"><label><span><b>未隐藏的好人卡</b><small>让具体的感谢故事跟着我</small></span><input type="checkbox" checked={cards} onChange={(event) => setCards(event.target.checked)}/></label><label><span><b>标记为跨圈的需要 / 提供</b><small>只有我主动选择的内容会出现</small></span><input type="checkbox" checked={needs} onChange={(event) => setNeeds(event.target.checked)}/></label><label><span><b>隐藏内容也仅自己可见</b><small>关闭后仍不会对其他成员公开</small></span><input type="checkbox" checked={hidden} onChange={(event) => setHidden(event.target.checked)}/></label></div><button className="primary-button" onClick={() => { onNotice("公开设置已更新（静态演示）"); onClose(); }}>保存设置</button></Modal>;
+function SettingsSheet({ settings, onClose, onSaved }: { settings: AppDatabase["settings"]; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [cards, setCards] = useState(settings.publicCards); const [needs, setNeeds] = useState(settings.publicListings); const [hidden, setHidden] = useState(settings.keepHiddenPrivate); const [saving,setSaving]=useState(false); const [error,setError]=useState("");
+  async function save(){try{setSaving(true);setError("");const response=await fetch("/api/settings",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({publicCards:cards,publicListings:needs,keepHiddenPrivate:hidden})});const result=await response.json() as {error?:string};if(!response.ok)throw new Error(result.error||"保存失败");await onSaved();onClose();}catch(error){setError(error instanceof Error?error.message:"保存失败");}finally{setSaving(false);}}
+  return <Modal onClose={onClose} label="跨圈公开设置"><div className="sheet-heading"><Pill color="blue">我的公开边界</Pill><h2>哪些内容跟着我跨圈出现</h2><p>圈内余额和交易不会自动跨圈。你也可以随时隐藏某一张好人卡或一条帖子。</p></div><div className="toggle-list"><label><span><b>未隐藏的好人卡</b><small>让具体的感谢故事跟着我</small></span><input type="checkbox" checked={cards} onChange={(event) => setCards(event.target.checked)}/></label><label><span><b>标记为跨圈的需要 / 提供</b><small>只有我主动选择的内容会出现</small></span><input type="checkbox" checked={needs} onChange={(event) => setNeeds(event.target.checked)}/></label><label><span><b>隐藏内容也仅自己可见</b><small>保留隐藏内容的私人存档</small></span><input type="checkbox" checked={hidden} onChange={(event) => setHidden(event.target.checked)}/></label></div>{error&&<p className="soft-note">{error}</p>}<button className="primary-button" disabled={saving} onClick={save}>{saving?"正在保存…":"保存设置"}</button></Modal>;
 }

@@ -20,11 +20,29 @@ test("renders the community currency demo shell", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /流动圈｜社区互助静态 Demo/);
+  assert.match(html, /流动圈｜让帮助被记得/);
   assert.match(html, /我的圈子动态/);
   assert.match(html, /泡泡助手/);
   assert.match(html, /说一句/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
+});
+
+test("includes the persistent backend and configurable assistant contract", async () => {
+  const [schema, runtime, records, assistant, environment, hosting] = await Promise.all([
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/runtime.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/records/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/assistant/draft/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../.env.example", import.meta.url), "utf8"),
+    readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
+  ]);
+  assert.match(schema, /transactions/);
+  assert.match(schema, /invitations/);
+  assert.match(runtime, /ensureDatabase/);
+  assert.match(records, /INSERT INTO activities/);
+  assert.match(assistant, /BUBBLE_ASSISTANT_API_URL/);
+  assert.match(environment, /BUBBLE_ASSISTANT_API_KEY=/);
+  assert.match(hosting, /"d1": "DB"/);
 });
 
 test("keeps the confirmed product flows, handoff facts, and visual language in source", async () => {
