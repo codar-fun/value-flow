@@ -12,6 +12,7 @@ export type AppDatabase = {
   members: Member[]; circles: Circle[]; accounts: Array<{ memberId: string; circleId: string; balance: number; given: number; received: number }>;
   listings: Listing[]; goodCards: GoodCard[]; transactions: Transaction[]; activity: Array<{ id: number; source: "listing" | "card" | "transaction"; sourceId: string }>;
   settings: { publicCards: boolean; publicListings: boolean; keepHiddenPrivate: boolean };
+  session: { authenticated: boolean };
   currentMemberId: string;
 };
 
@@ -123,7 +124,7 @@ export async function loadBootstrap(request: Request): Promise<AppDatabase> {
   const goodCards = cardRows.results.map((r) => ({id:String(r.id),fromMemberId:String(r.from_member_id),toMemberId:String(r.to_member_id),story:String(r.story),date:displayDate(Number(r.created_at)),tags:parse<string[]>(String(r.tags_json)),visibility:r.visibility as GoodCard["visibility"],circleId:String(r.circle_id)})).filter((item)=>item.visibility==="cross-circle"||currentCircleIds.includes(item.circleId));
   const transactions = transactionRows.results.map((r) => ({id:String(r.id),circleId:String(r.circle_id),providerId:String(r.provider_id),receiverId:String(r.receiver_id),amount:Number(r.amount),title:String(r.title),story:String(r.story),happenedAt:displayDate(Number(r.happened_at)),recordedAt:displayDate(Number(r.recorded_at)),visibility:r.visibility as Transaction["visibility"],status:r.status as Transaction["status"],tags:parse<string[]>(String(r.tags_json))})).filter((item)=>currentCircleIds.includes(item.circleId)&&(item.visibility!=="private"||item.providerId===currentMemberId||item.receiverId===currentMemberId));
   const visibleSources=new Set([...listings.map((item)=>`listing:${item.id}`),...goodCards.map((item)=>`card:${item.id}`),...transactions.filter((item)=>item.status!=="rejected").map((item)=>`transaction:${item.id}`)]);
-  return { members,circles,accounts,listings,goodCards,transactions,activity:activityRows.results.filter((r)=>visibleSources.has(`${r.source}:${r.source_id}`)).map((r) => ({id:Number(r.id),source:r.source as "listing"|"card"|"transaction",sourceId:String(r.source_id)})),settings:{publicCards:Boolean(settings?.public_cards ?? 1),publicListings:Boolean(settings?.public_listings ?? 1),keepHiddenPrivate:Boolean(settings?.keep_hidden_private ?? 1)},currentMemberId };
+  return { members,circles,accounts,listings,goodCards,transactions,activity:activityRows.results.filter((r)=>visibleSources.has(`${r.source}:${r.source_id}`)).map((r) => ({id:Number(r.id),source:r.source as "listing"|"card"|"transaction",sourceId:String(r.source_id)})),settings:{publicCards:Boolean(settings?.public_cards ?? 1),publicListings:Boolean(settings?.public_listings ?? 1),keepHiddenPrivate:Boolean(settings?.keep_hidden_private ?? 1)},session:{authenticated:Boolean(request.headers.get("oai-authenticated-user-email"))},currentMemberId };
 }
 
 export function json(data: unknown, init?: ResponseInit) { return Response.json(data, { ...init, headers: { "cache-control": "no-store", ...init?.headers } }); }

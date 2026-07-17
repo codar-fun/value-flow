@@ -41,6 +41,7 @@ test("includes the persistent backend and configurable assistant contract", asyn
   assert.match(schema, /dataMigrations/);
   assert.match(runtime, /ensureDatabase/);
   assert.match(runtime, /legacy-demo-records-v1/);
+  assert.match(runtime, /authenticated/);
   assert.match(records, /INSERT INTO activities/);
   assert.match(assistant, /BUBBLE_ASSISTANT_API_URL/);
   assert.match(environment, /BUBBLE_ASSISTANT_API_KEY=/);
@@ -74,6 +75,8 @@ test("keeps the confirmed product flows, handoff facts, and visual language in s
   assert.match(page, /CreateCircleView/);
   assert.match(page, /圈子身份/);
   assert.match(page, /互助设置/);
+  assert.match(page, /第一次来/);
+  assert.match(page, /signin-with-chatgpt/);
   assert.match(page, /成员与边界/);
   assert.match(page, /预览确认/);
   assert.match(page, /不与人民币兑换/);

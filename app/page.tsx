@@ -31,7 +31,7 @@ type Post = {
   sourceId: string;
 };
 
-const initialDb: AppDatabase = { ...(demoDb as unknown as Omit<AppDatabase, "settings" | "currentMemberId">), settings: { publicCards: true, publicListings: true, keepHiddenPrivate: true }, currentMemberId: "qiaoye" };
+const initialDb: AppDatabase = { ...(demoDb as unknown as Omit<AppDatabase, "settings" | "session" | "currentMemberId">), settings: { publicCards: true, publicListings: true, keepHiddenPrivate: true }, session: { authenticated: false }, currentMemberId: "qiaoye" };
 let activeDb = initialDb;
 let members = activeDb.members;
 let circles = activeDb.circles;
@@ -49,23 +49,33 @@ function accountFor(memberId: string, circleId: string) {
 }
 
 function buildPosts(): Post[] {
-  return activeDb.activity.map((activity) => {
+  const result: Post[] = [];
+  for (const activity of activeDb.activity) {
     if (activity.source === "listing") {
-      const listing = activeDb.listings.find((item) => item.id === activity.sourceId)!;
-      const member = memberById(listing.memberId);
-      const circle = circleById(listing.circleIds[0]);
-      return { id: activity.id, kind: listing.type, badge: listing.type === "need" ? "我想要" : "我可以给", person: member.name, role: member.role, memberId: member.id, avatar: member.initial, avatarVariant: member.avatar, color: listing.type === "need" ? "pink" : "green", text: listing.detail, meta: `${circle.name} · ${listing.location}`, chips: listing.tags, circleId: circle.id, nearby: listing.nearby, source: activity.source, sourceId: listing.id };
+      const listing = activeDb.listings.find((item) => item.id === activity.sourceId);
+      const member = activeDb.members.find((item) => item.id === listing?.memberId);
+      const circle = activeDb.circles.find((item) => item.id === listing?.circleIds[0]);
+      if (!listing || !member || !circle) continue;
+      result.push({ id: activity.id, kind: listing.type, badge: listing.type === "need" ? "我想要" : "我可以给", person: member.name, role: member.role, memberId: member.id, avatar: member.initial, avatarVariant: member.avatar, color: listing.type === "need" ? "pink" : "green", text: listing.detail, meta: `${circle.name} · ${listing.location}`, chips: listing.tags, circleId: circle.id, nearby: listing.nearby, source: activity.source, sourceId: listing.id });
+      continue;
     }
     if (activity.source === "card") {
-      const card = activeDb.goodCards.find((item) => item.id === activity.sourceId)!;
-      const from = memberById(card.fromMemberId); const to = memberById(card.toMemberId);
-      return { id: activity.id, kind: "card", badge: "好人卡", person: `${from.name} → ${to.name}`, role: "跨圈公开", memberId: to.id, avatar: to.initial, avatarVariant: to.avatar, color: "coral", text: card.story, meta: `${card.date} · 被好好看见`, chips: card.tags, circleId: card.circleId, source: activity.source, sourceId: card.id };
+      const card = activeDb.goodCards.find((item) => item.id === activity.sourceId);
+      const from = activeDb.members.find((item) => item.id === card?.fromMemberId);
+      const to = activeDb.members.find((item) => item.id === card?.toMemberId);
+      if (!card || !from || !to) continue;
+      result.push({ id: activity.id, kind: "card", badge: "好人卡", person: `${from.name} → ${to.name}`, role: "跨圈公开", memberId: to.id, avatar: to.initial, avatarVariant: to.avatar, color: "coral", text: card.story, meta: `${card.date} · 被好好看见`, chips: card.tags, circleId: card.circleId, source: activity.source, sourceId: card.id });
+      continue;
     }
-    const transaction = activeDb.transactions.find((item) => item.id === activity.sourceId)!;
-    const provider = memberById(transaction.providerId); const receiver = memberById(transaction.receiverId); const circle = circleById(transaction.circleId);
+    const transaction = activeDb.transactions.find((item) => item.id === activity.sourceId);
+    const provider = activeDb.members.find((item) => item.id === transaction?.providerId);
+    const receiver = activeDb.members.find((item) => item.id === transaction?.receiverId);
+    const circle = activeDb.circles.find((item) => item.id === transaction?.circleId);
+    if (!transaction || !provider || !receiver || !circle) continue;
     const mystery = transaction.visibility === "mystery";
-    return { id: activity.id, kind: mystery ? "mystery" : "trade", badge: mystery ? "神秘记录" : "互助完成", person: mystery ? "圈里发生了一次互助" : `${provider.name} → ${receiver.name}`, role: mystery ? "身份与故事已隐藏" : "圈内公开", memberId: mystery ? undefined : provider.id, avatar: mystery ? "?" : provider.initial, avatarVariant: mystery ? "crop" : provider.avatar, color: mystery ? "blue" : "yellow", text: transaction.story, meta: `${circle.name} · ${transaction.amount} ${circle.currency}`, chips: transaction.tags, circleId: circle.id, nearby: circle.id === "village", source: activity.source, sourceId: transaction.id };
-  });
+    result.push({ id: activity.id, kind: mystery ? "mystery" : "trade", badge: mystery ? "神秘记录" : "互助完成", person: mystery ? "圈里发生了一次互助" : `${provider.name} → ${receiver.name}`, role: mystery ? "身份与故事已隐藏" : "圈内公开", memberId: mystery ? undefined : provider.id, avatar: mystery ? "?" : provider.initial, avatarVariant: mystery ? "crop" : provider.avatar, color: mystery ? "blue" : "yellow", text: transaction.story, meta: `${circle.name} · ${transaction.amount} ${circle.currency}`, chips: transaction.tags, circleId: circle.id, nearby: circle.id === "village", source: activity.source, sourceId: transaction.id });
+  }
+  return result;
 }
 
 let posts = buildPosts();
@@ -134,7 +144,7 @@ export default function Home() {
     return()=>{active=false;};
   }, []);
 
-  const activeCircle = circles.find((item) => item.id === circleId) ?? circles[0];
+  const activeCircle = circles.find((item) => item.id === circleId) ?? circles[0] ?? initialDb.circles[0];
   const activeAccount = accountFor(currentMemberId, activeCircle.id);
   const selectedMember = memberById(selectedMemberId);
   const selectedPost = posts.find((post) => post.id === selectedPostId) ?? posts[0];
@@ -190,6 +200,10 @@ export default function Home() {
     } catch (error) { flash(error instanceof Error ? error.message : "保存失败"); }
   }
 
+  if (circles.length === 0 && view !== "create") {
+    return <AccountStartView member={memberById(currentMemberId)} needsRegistration={memberById(currentMemberId).role === "新朋友"} onRegistered={refreshData} onCreate={openCreateCircle}/>;
+  }
+
   return <main className="world-shell">
     <aside className="circle-dock" aria-label="我的圈子地图">
       <button className={`brand-mark ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流动圈</span><b>FLOW CIRCLE · 了解我们 →</b></button>
@@ -202,7 +216,7 @@ export default function Home() {
 
     <section className="phone-stage">
       <div className={`app-frame ${view === "about" || view === "create" ? "about-open" : ""}`}>
-        <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流</span><i/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : view === "create" ? "NEW CIRCLE · 创建向导" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : view === "create" ? "创建新圈子" : `你好，${memberById(currentMemberId).name}！`}</h1></div><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById(currentMemberId)}/></button></header>
+        <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流</span><i/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : view === "create" ? "NEW CIRCLE · 创建向导" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : view === "create" ? "创建新圈子" : `你好，${memberById(currentMemberId).name}！`}</h1></div><button className="avatar-button" onClick={() => db.session.authenticated ? setView("me") : window.location.assign("/signin-with-chatgpt?return_to=%2F")} aria-label={db.session.authenticated ? "打开我的主页" : "登录或注册"}><Character member={memberById(currentMemberId)}/></button></header>
         {view !== "about" && view !== "create" && <nav className="circle-switcher" aria-label="切换动态范围"><button className={`all-switch ${feedCircleId === "all" && view === "feed" ? "selected" : ""}`} onClick={showAllCircles}><span className="circle-dot dot-all"/><span>全部圈子</span><b>{posts.length}</b></button>{circles.filter((item) => memberById(currentMemberId).circleIds.includes(item.id)).map((item) => { const account = accountFor(currentMemberId, item.id); return <button key={item.id} className={feedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><span className={`circle-dot dot-${item.color}`}/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>}
         <div className="view-content">
           {view === "about" && <AboutView onExplore={showAllCircles} onCreate={openCreateCircle} onCircle={(id) => selectCircle(id, "circle")}/>}
@@ -246,6 +260,32 @@ export default function Home() {
     {overlay === "settings" && <SettingsSheet settings={db.settings} onClose={() => setOverlay(null)} onSaved={async () => { await refreshData(); flash("公开设置已经保存"); }}/>} 
     {toast && <div className="toast" role="status">{toast}</div>}
   </main>;
+}
+
+function AccountStartView({ member, needsRegistration, onRegistered, onCreate }: { member: Member; needsRegistration: boolean; onRegistered: () => Promise<void>; onCreate: () => void }) {
+  const [name,setName]=useState(member.name);
+  const [role,setRole]=useState(needsRegistration ? "社区成员" : member.role);
+  const [wechat,setWechat]=useState(member.wechat);
+  const [saving,setSaving]=useState(false);
+  const [error,setError]=useState("");
+
+  async function register() {
+    try {
+      setSaving(true); setError("");
+      const response=await fetch("/api/profile",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({name,role,wechat})});
+      const result=await response.json() as {error?:string};
+      if(!response.ok) throw new Error(result.error||"建档失败");
+      await onRegistered();
+    } catch(error) {
+      setError(error instanceof Error?error.message:"建档失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!needsRegistration) return <main className="account-start"><section className="account-card account-ready"><Pill color="green">注册完成 · READY</Pill><h1>欢迎，{member.name}。</h1><p>你的成员档案已经建立。接下来可以创建第一个圈子，或者打开朋友发来的邀请链接加入现有圈子。</p><div className="account-next"><button className="primary-button" onClick={onCreate}>创建第一个圈子</button><a href="/signout-with-chatgpt?return_to=%2F">退出登录并查看公开演示</a></div><div className="account-boundary"><b>还没有圈子，不是错误。</b><span>加入圈子后，这里才会出现对应的成员、余额和互助记录。</span></div></section></main>;
+
+  return <main className="account-start"><section className="account-card"><div className="account-brand"><span>流</span><b>FLOW CIRCLE</b></div><Pill color="blue">已使用 ChatGPT 登录</Pill><h1>第一次来，<br/>先建立你的成员档案。</h1><p>这里只记录你愿意公开的社区身份。真实协商仍然发生在微信或线下。</p><div className="account-form"><label><span>怎么称呼你</span><input value={name} onChange={(event)=>setName(event.target.value)} placeholder="昵称"/></label><label><span>你在社区里的角色</span><input value={role} onChange={(event)=>setRole(event.target.value)} placeholder="例如：活动召集人"/></label><label><span>微信号（可稍后填写）</span><input value={wechat} onChange={(event)=>setWechat(event.target.value)} placeholder="只在你主动公开时显示"/></label></div>{error&&<p className="account-error">{error}</p>}<button className="primary-button" disabled={saving} onClick={register}>{saving?"正在建立档案…":"完成注册"}</button><a className="account-signout" href="/signout-with-chatgpt?return_to=%2F">换一个账号，或先看公开演示</a></section></main>;
 }
 
 function AboutView({ onExplore, onCreate, onCircle }: { onExplore: () => void; onCreate: () => void; onCircle: (id: string) => void }) {
