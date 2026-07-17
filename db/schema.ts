@@ -107,3 +107,8 @@ export const assistantMessages = sqliteTable("assistant_messages", {
   role: text("role").notNull(), content: text("content").notNull(), intent: text("intent"),
   draftJson: text("draft_json"), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 }, (table) => [index("assistant_member_created_idx").on(table.memberId, table.createdAt)]);
+
+export const dataMigrations = sqliteTable("data_migrations", {
+  id: text("id").primaryKey(),
+  appliedAt: integer("applied_at", { mode: "timestamp_ms" }).notNull(),
+});

@@ -38,7 +38,9 @@ test("includes the persistent backend and configurable assistant contract", asyn
   ]);
   assert.match(schema, /transactions/);
   assert.match(schema, /invitations/);
+  assert.match(schema, /dataMigrations/);
   assert.match(runtime, /ensureDatabase/);
+  assert.match(runtime, /legacy-demo-records-v1/);
   assert.match(records, /INSERT INTO activities/);
   assert.match(assistant, /BUBBLE_ASSISTANT_API_URL/);
   assert.match(environment, /BUBBLE_ASSISTANT_API_KEY=/);

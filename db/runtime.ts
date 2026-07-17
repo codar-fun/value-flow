@@ -30,7 +30,10 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS user_settings (member_id TEXT PRIMARY KEY REFERENCES members(id), public_cards INTEGER NOT NULL DEFAULT 1, public_listings INTEGER NOT NULL DEFAULT 1, keep_hidden_private INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS assistant_messages (id TEXT PRIMARY KEY, member_id TEXT NOT NULL REFERENCES members(id), role TEXT NOT NULL, content TEXT NOT NULL, intent TEXT, draft_json TEXT, created_at INTEGER NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS assistant_member_created_idx ON assistant_messages(member_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS data_migrations (id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)`,
 ];
+
+const demoRecordsMigrationId = "legacy-demo-records-v1";
 
 export function runtimeEnv(): RuntimeEnv {
   const value=(globalThis as typeof globalThis & {__FLOW_CIRCLE_ENV?:RuntimeEnv}).__FLOW_CIRCLE_ENV;
@@ -43,7 +46,19 @@ export async function ensureDatabase(db = runtimeEnv().DB) {
   await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
   const count = await db.prepare("SELECT COUNT(*) AS count FROM circles").first<{ count: number }>();
   if ((count?.count ?? 0) > 0) {
-    await db.prepare("INSERT OR IGNORE INTO memberships (id,circle_id,member_id,role,status,joined_at) SELECT circle_id || ':' || member_id,circle_id,member_id,CASE WHEN member_id='qiaoye' THEN 'owner' ELSE 'member' END,'active',? FROM accounts").bind(Date.now()).run();
+    const now = Date.now();
+    await db.prepare("INSERT OR IGNORE INTO memberships (id,circle_id,member_id,role,status,joined_at) SELECT circle_id || ':' || member_id,circle_id,member_id,CASE WHEN member_id='qiaoye' THEN 'owner' ELSE 'member' END,'active',? FROM accounts").bind(now).run();
+    const migrated = await db.prepare("SELECT id FROM data_migrations WHERE id=?").bind(demoRecordsMigrationId).first<{ id: string }>();
+    if (!migrated) {
+      const statements: D1PreparedStatement[] = [];
+      for (const item of demoDb.transactions) statements.push(db.prepare("INSERT OR IGNORE INTO transactions (id,circle_id,provider_id,receiver_id,amount,title,story,happened_at,recorded_at,visibility,status,tags_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").bind(item.id,item.circleId,item.providerId,item.receiverId,item.amount,item.title,item.story,now,now,item.visibility,item.status,JSON.stringify(item.tags)));
+      for (const item of demoDb.activity) {
+        const circleId = item.source === "listing" ? demoDb.listings.find((x) => x.id === item.sourceId)?.circleIds[0] : item.source === "card" ? demoDb.goodCards.find((x) => x.id === item.sourceId)?.circleId : demoDb.transactions.find((x) => x.id === item.sourceId)?.circleId;
+        statements.push(db.prepare("INSERT OR IGNORE INTO activities (source,source_id,circle_id,created_at) VALUES (?,?,?,?)").bind(item.source,item.sourceId,circleId ?? "qiao",now - item.id * 1000));
+      }
+      statements.push(db.prepare("INSERT INTO data_migrations (id,applied_at) VALUES (?,?)").bind(demoRecordsMigrationId,now));
+      await db.batch(statements);
+    }
     return;
   }
 
@@ -63,6 +78,7 @@ export async function ensureDatabase(db = runtimeEnv().DB) {
   for (const item of demoDb.transactions) statements.push(db.prepare("INSERT OR IGNORE INTO transactions (id,circle_id,provider_id,receiver_id,amount,title,story,happened_at,recorded_at,visibility,status,tags_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").bind(item.id,item.circleId,item.providerId,item.receiverId,item.amount,item.title,item.story,now,now,item.visibility,item.status,JSON.stringify(item.tags)));
   for (const item of demoDb.activity) { const circleId = item.source === "listing" ? demoDb.listings.find((x) => x.id === item.sourceId)?.circleIds[0] : item.source === "card" ? demoDb.goodCards.find((x) => x.id === item.sourceId)?.circleId : demoDb.transactions.find((x) => x.id === item.sourceId)?.circleId; statements.push(db.prepare("INSERT OR IGNORE INTO activities (id,source,source_id,circle_id,created_at) VALUES (?,?,?,?,?)").bind(item.id,item.source,item.sourceId,circleId ?? "qiao",now - item.id * 1000)); }
   statements.push(db.prepare("INSERT OR IGNORE INTO user_settings (member_id,public_cards,public_listings,keep_hidden_private,updated_at) VALUES ('qiaoye',1,1,1,?)").bind(now));
+  statements.push(db.prepare("INSERT OR IGNORE INTO data_migrations (id,applied_at) VALUES (?,?)").bind(demoRecordsMigrationId,now));
   for (let index = 0; index < statements.length; index += 75) await db.batch(statements.slice(index, index + 75));
 }
 
