@@ -158,19 +158,19 @@ function LoginGate({ onDone }: { onDone: () => Promise<void> }) {
     <span>FLOW CIRCLE · 登录流动圈</span>
     <h1>{step === "profile" ? "给自己取个名字" : "用邮箱验证码登录"}</h1>
     <p>{step === "email" ? "输入邮箱，我们会发送一次性验证码。" : step === "code" ? `验证码已发送到 ${email}` : "这个名字会显示在圈子里。"}</p>
-    {error && <p style={{ color: "#c0492f" }}>{error}</p>}
+    {error && <p className="account-error">{error}</p>}
     {step === "email" && <>
-      <input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email"/>
-      <button onClick={requestCode} disabled={busy}>{busy ? "发送中…" : "发送验证码"}</button>
+      <div className="account-form"><label><span>邮箱</span><input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email"/></label></div>
+      <button className="primary-button" onClick={requestCode} disabled={busy}>{busy ? "发送中…" : "发送验证码"}</button>
     </>}
     {step === "code" && <>
-      <input inputMode="numeric" placeholder="6 位验证码" value={code} onChange={(e) => setCode(e.target.value)}/>
-      <button onClick={verify} disabled={busy}>{busy ? "验证中…" : "登录"}</button>
+      <div className="account-form"><label><span>验证码</span><input inputMode="numeric" placeholder="6 位验证码" value={code} onChange={(e) => setCode(e.target.value)}/></label></div>
+      <button className="primary-button" onClick={verify} disabled={busy}>{busy ? "验证中…" : "登录"}</button>
       <button className="text-link" onClick={() => { setStep("email"); setError(""); }}>换一个邮箱</button>
     </>}
     {step === "profile" && <>
-      <input placeholder="用户名（英文/数字）" value={username} onChange={(e) => setUsername(e.target.value)}/>
-      <button onClick={finishProfile} disabled={busy}>{busy ? "保存中…" : "进入流动圈"}</button>
+      <div className="account-form"><label><span>用户名（英文 / 数字，3–20 位）</span><input placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)}/></label></div>
+      <button className="primary-button" onClick={finishProfile} disabled={busy}>{busy ? "保存中…" : "进入流动圈"}</button>
     </>}
   </section></main>;
 }
