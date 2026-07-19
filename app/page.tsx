@@ -202,11 +202,29 @@ export default function Home() {
     setDb(payload);
   }
 
+  async function logout() {
+    try { await fetch("/api/auth/logout", { method: "POST" }); } catch { /* ignore */ }
+    setView("feed");
+    setDb(initialDb); // session.authenticated=false → the login gate takes over
+  }
+
   useEffect(() => {
     let active=true;
     fetch("/api/bootstrap",{cache:"no-store"}).then(async (response)=>{const payload=await response.json() as AppDatabase&{error?:string};if(!response.ok)throw new Error(payload.error||"数据加载失败");if(active)setDb(payload);}).catch((error)=>{if(active)flash(error instanceof Error?error.message:"暂时无法连接数据服务");}).finally(()=>{if(active)setLoaded(true);});
     return()=>{active=false;};
   }, []);
+
+  // After signing in, auto-accept a pending invite carried as ?join=<token>
+  // (from the invite landing page's "前往登录" link).
+  useEffect(() => {
+    if (!db.session.authenticated) return;
+    const joinToken = new URLSearchParams(window.location.search).get("join");
+    if (!joinToken) return;
+    window.history.replaceState({}, "", "/");
+    fetch(`/api/invitations/${encodeURIComponent(joinToken)}`, { method: "POST" })
+      .then(async (r) => { const d = (await r.json().catch(() => ({}))) as { status?: string; error?: string }; if (r.ok) { await refreshData(); flash(d.status === "pending" ? "已申请加入，等待管理员确认" : "已加入圈子"); } else { flash(d.error || "加入失败"); } })
+      .catch(() => {});
+  }, [db.session.authenticated]);
 
   const activeCircle = circles.find((item) => item.id === circleId) ?? circles[0] ?? EMPTY_CIRCLE;
   const activeAccount = accountFor(currentMemberId, activeCircle.id);
@@ -269,7 +287,7 @@ export default function Home() {
   }
 
   if (circles.length === 0 && view !== "create") {
-    return <AccountStartView member={memberById(currentMemberId)} needsRegistration={memberById(currentMemberId).role === "新朋友"} onRegistered={refreshData} onCreate={openCreateCircle}/>;
+    return <AccountStartView member={memberById(currentMemberId)} needsRegistration={memberById(currentMemberId).role === "新朋友"} onRegistered={refreshData} onCreate={openCreateCircle} onLogout={logout}/>;
   }
 
   return <main className="world-shell">
@@ -295,7 +313,7 @@ export default function Home() {
           {view === "feed" && <FeedView activeCircle={activeCircle} activeAccount={activeAccount} isAllCircles={feedCircleId === "all"} posts={feedPosts} filter={feedFilter} onSpeak={openComposer} onCircle={() => setView("circle")} onMe={() => setView("me")} onProfile={openProfile} onShare={() => setOverlay("share")} onFilter={() => setOverlay("feedFilter")} onPost={openPost}/>}
           {view === "discover" && <DiscoverView posts={discoverPosts} filter={discoverFilter} setFilter={setDiscoverFilter} onSpeak={openComposer} onProfile={openProfile} onShare={() => setOverlay("share")} onPost={openPost}/>}
           {view === "circle" && <CircleView circle={activeCircle} account={activeAccount} posts={posts.filter((post) => post.circleId === activeCircle.id)} onSpeak={openComposer} onProfile={openProfile} onShare={() => setOverlay("share")} onPost={openPost} onIntro={() => setOverlay("intro")} onRules={() => setOverlay("rules")} onMembers={() => setOverlay("members")} onInvite={() => setOverlay("invite")}/>}
-          {view === "me" && <MeView onShare={() => setOverlay("share")} onCard={() => openComposer("card")} onCreate={openCreateCircle} onSettings={() => setOverlay("settings")} onCircle={(id) => selectCircle(id, "circle")} onArchive={(tab) => openProfile(currentMemberId, tab)}/>} 
+          {view === "me" && <MeView onShare={() => setOverlay("share")} onCard={() => openComposer("card")} onCreate={openCreateCircle} onSettings={() => setOverlay("settings")} onCircle={(id) => selectCircle(id, "circle")} onArchive={(tab) => openProfile(currentMemberId, tab)} onLogout={logout}/>}
         </div>
         <nav className="bottom-nav" aria-label="主要导航">
           <button className={view === "feed" ? "active" : ""} onClick={() => setView("feed")}><span className="nav-icon">⌂</span><small>动态</small></button>
@@ -330,7 +348,7 @@ export default function Home() {
   </main>;
 }
 
-function AccountStartView({ member, needsRegistration, onRegistered, onCreate }: { member: Member; needsRegistration: boolean; onRegistered: () => Promise<void>; onCreate: () => void }) {
+function AccountStartView({ member, needsRegistration, onRegistered, onCreate, onLogout }: { member: Member; needsRegistration: boolean; onRegistered: () => Promise<void>; onCreate: () => void; onLogout: () => void }) {
   const [name,setName]=useState(member.name);
   const [role,setRole]=useState(needsRegistration ? "社区成员" : member.role);
   const [wechat,setWechat]=useState(member.wechat);
@@ -351,9 +369,9 @@ function AccountStartView({ member, needsRegistration, onRegistered, onCreate }:
     }
   }
 
-  if (!needsRegistration) return <main className="account-start"><section className="account-card account-ready"><Pill color="green">注册完成 · READY</Pill><h1>欢迎，{member.name}。</h1><p>你的成员档案已经建立。接下来可以创建第一个圈子，或者打开朋友发来的邀请链接加入现有圈子。</p><div className="account-next"><button className="primary-button" onClick={onCreate}>创建第一个圈子</button><a href="/signout-with-chatgpt?return_to=%2F">退出登录并查看公开演示</a></div><div className="account-boundary"><b>还没有圈子，不是错误。</b><span>加入圈子后，这里才会出现对应的成员、余额和互助记录。</span></div></section></main>;
+  if (!needsRegistration) return <main className="account-start"><section className="account-card account-ready"><Pill color="green">注册完成 · READY</Pill><h1>欢迎，{member.name}。</h1><p>你的成员档案已经建立。接下来可以创建第一个圈子，或者打开朋友发来的邀请链接加入现有圈子。</p><div className="account-next"><button className="primary-button" onClick={onCreate}>创建第一个圈子</button><button className="text-link" onClick={onLogout}>退出登录</button></div><div className="account-boundary"><b>还没有圈子，不是错误。</b><span>加入圈子后，这里才会出现对应的成员、余额和互助记录。</span></div></section></main>;
 
-  return <main className="account-start"><section className="account-card"><div className="account-brand"><span>流</span><b>FLOW CIRCLE</b></div><Pill color="blue">已使用 ChatGPT 登录</Pill><h1>第一次来，<br/>先建立你的成员档案。</h1><p>这里只记录你愿意公开的社区身份。真实协商仍然发生在微信或线下。</p><div className="account-form"><label><span>怎么称呼你</span><input value={name} onChange={(event)=>setName(event.target.value)} placeholder="昵称"/></label><label><span>你在社区里的角色</span><input value={role} onChange={(event)=>setRole(event.target.value)} placeholder="例如：活动召集人"/></label><label><span>微信号（可稍后填写）</span><input value={wechat} onChange={(event)=>setWechat(event.target.value)} placeholder="只在你主动公开时显示"/></label></div>{error&&<p className="account-error">{error}</p>}<button className="primary-button" disabled={saving} onClick={register}>{saving?"正在建立档案…":"完成注册"}</button><a className="account-signout" href="/signout-with-chatgpt?return_to=%2F">换一个账号，或先看公开演示</a></section></main>;
+  return <main className="account-start"><section className="account-card"><div className="account-brand"><span>流</span><b>FLOW CIRCLE</b></div><Pill color="blue">已使用 ChatGPT 登录</Pill><h1>第一次来，<br/>先建立你的成员档案。</h1><p>这里只记录你愿意公开的社区身份。真实协商仍然发生在微信或线下。</p><div className="account-form"><label><span>怎么称呼你</span><input value={name} onChange={(event)=>setName(event.target.value)} placeholder="昵称"/></label><label><span>你在社区里的角色</span><input value={role} onChange={(event)=>setRole(event.target.value)} placeholder="例如：活动召集人"/></label><label><span>微信号（可稍后填写）</span><input value={wechat} onChange={(event)=>setWechat(event.target.value)} placeholder="只在你主动公开时显示"/></label></div>{error&&<p className="account-error">{error}</p>}<button className="primary-button" disabled={saving} onClick={register}>{saving?"正在建立档案…":"完成注册"}</button><button className="account-signout" onClick={onLogout}>退出登录，换一个账号</button></section></main>;
 }
 
 function AboutView({ onExplore, onCreate, onCircle }: { onExplore: () => void; onCreate: () => void; onCircle: (id: string) => void }) {
@@ -423,14 +441,14 @@ function CircleView({ circle, account, posts: circlePosts, onSpeak, onProfile, o
   return <><section className={`page-hero circle-hero hero-${circle.color}`}><div><Pill color="cream">我的营地 · {circle.location}</Pill><h2>{circle.name}</h2><p>{circle.tagline}</p></div><div className="coin-badge"><span>{account.balance > 0 ? "+" : ""}{account.balance}</span><small>{circle.currency}</small></div></section><div className="circle-actions"><button onClick={() => onSpeak()}>● 说一句</button><button onClick={onInvite}>邀请成员</button><button onClick={onIntro}>圈子介绍</button></div><button className="camp-preview" onClick={onIntro}><span className={`camp-flag flag-${circle.color}`}>{circle.short}</span><div><small>CAMP PROFILE</small><h3>{circle.tagline}</h3><p>{circle.joining} · {circle.members} 位成员</p></div><b>进入介绍 →</b></button><section className="balance-panel"><div><span>当前额度</span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong><small>我在这个圈的流动额度</small></div><div><span>给出过</span><strong>{account.given}</strong><small>来自真实互助</small></div><div><span>收到过</span><strong>{account.received}</strong><small>接受帮助也很好</small></div></section><SectionTitle eyebrow="REFERENCE" title="圈内参考物" action="查看规则" onAction={onRules}/><div className="reference-grid">{circle.references.map((item) => <button key={item.name} onClick={onRules}><b>{item.name}</b><span>{item.value}</span></button>)}</div><SectionTitle eyebrow="PEOPLE" title="最近活跃的成员" action="全部成员" onAction={onMembers}/><div className="member-row">{circle.memberIds.slice(0,4).map((id) => { const member = memberById(id); return <button key={member.id} onClick={() => onProfile(member.id)}><Character member={member} small/><b>{member.name}</b><small>{member.role}</small></button>; })}</div><div className="circle-feed"><SectionTitle eyebrow={`${circlePosts.length} EVENTS IN THIS CIRCLE`} title={`${circle.name}动态`}/><FeedList posts={circlePosts} onProfile={onProfile} onShare={onShare} onPost={onPost}/></div></>;
 }
 
-function MeView({ onShare, onCard, onCreate, onSettings, onCircle, onArchive }: { onShare: () => void; onCard: () => void; onCreate: () => void; onSettings: () => void; onCircle: (id: string) => void; onArchive: (tab: ProfileTab) => void }) {
+function MeView({ onShare, onCard, onCreate, onSettings, onCircle, onArchive, onLogout }: { onShare: () => void; onCard: () => void; onCreate: () => void; onSettings: () => void; onCircle: (id: string) => void; onArchive: (tab: ProfileTab) => void; onLogout: () => void }) {
   const me = memberById(activeDb.currentMemberId);
   const myListings = activeDb.listings.filter((item) => item.memberId === me.id);
   const activeNeed = myListings.find((item) => item.type === "need" && item.status === "active");
   const activeOffer = myListings.find((item) => item.type === "offer" && item.status === "active");
   const cardCount = activeDb.goodCards.filter((card) => card.toMemberId === me.id && card.visibility === "cross-circle").length;
   const transactionCount = activeDb.transactions.filter((item) => item.providerId === me.id || item.receiverId === me.id).length;
-  return <><section className="profile-hero"><Character member={me}/><div><Pill color="cream">跨圈角色卡</Pill><h2>{me.name}</h2><p>{me.bio}</p></div><button onClick={onShare}>生成分享图</button></section><section className="passport-card"><div><span>COMMUNITY PASSPORT</span><h3>{cardCount} 张好人卡，完整故事都在档案里</h3><p>“{activeDb.goodCards.find((card) => card.toMemberId === me.id)?.story ?? "新的感谢故事会出现在这里。"}”</p></div><button onClick={onCard}>＋ 发一张卡</button></section><SectionTitle eyebrow="FULL ARCHIVE" title="我的完整社区档案"/><div className="archive-grid"><button onClick={() => onArchive("cards")}><strong>{cardCount}</strong><span>好人卡故事</span><small>查看谁写下了什么</small></button><button onClick={() => onArchive("listings")}><strong>{myListings.length}</strong><span>需要 / 提供</span><small>包含暂停与过往内容</small></button><button onClick={() => onArchive("transactions")}><strong>{transactionCount}</strong><span>互助记录</span><small>公开、私密与更正状态</small></button></div><SectionTitle eyebrow="OPEN NOW" title="我目前的需要 / 提供" action="公开设置" onAction={onSettings}/><div className="my-board"><button className="my-need" onClick={() => onArchive("listings")}><Pill color="pink">我想要</Pill><h3>{activeNeed?.title ?? "还没有发布中的需要"}</h3><span>{activeNeed ? `${activeNeed.visibility === "cross-circle" ? "跨圈公开" : "圈内可见"} · 查看完整内容` : "可以从“说一句”开始"}</span></button><button className="my-offer" onClick={() => onArchive("listings")}><Pill color="green">我可以给</Pill><h3>{activeOffer?.title ?? "还没有发布中的提供"}</h3><span>{activeOffer ? `${activeOffer.circleIds.length} 个圈可见 · 查看完整内容` : "让大家发现你的能力"}</span></button></div><SectionTitle eyebrow="MY CIRCLES" title="我的圈子" action="创建新圈" onAction={onCreate}/><div className="my-circles">{circles.filter((circle) => me.circleIds.includes(circle.id)).map((circle) => { const account = accountFor(me.id, circle.id); return <button className="my-circle" key={circle.id} onClick={() => onCircle(circle.id)}><Character text={circle.short} color={circle.color} variant={circle.id === "qiao" ? "wave" : circle.id === "human" ? "crop" : "leaf"} small/><span><b>{circle.name}</b><small>{circle.role} · {circle.members} 人</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div></>;
+  return <><section className="profile-hero"><Character member={me}/><div><Pill color="cream">跨圈角色卡</Pill><h2>{me.name}</h2><p>{me.bio}</p></div><button onClick={onShare}>生成分享图</button></section><section className="passport-card"><div><span>COMMUNITY PASSPORT</span><h3>{cardCount} 张好人卡，完整故事都在档案里</h3><p>“{activeDb.goodCards.find((card) => card.toMemberId === me.id)?.story ?? "新的感谢故事会出现在这里。"}”</p></div><button onClick={onCard}>＋ 发一张卡</button></section><SectionTitle eyebrow="FULL ARCHIVE" title="我的完整社区档案"/><div className="archive-grid"><button onClick={() => onArchive("cards")}><strong>{cardCount}</strong><span>好人卡故事</span><small>查看谁写下了什么</small></button><button onClick={() => onArchive("listings")}><strong>{myListings.length}</strong><span>需要 / 提供</span><small>包含暂停与过往内容</small></button><button onClick={() => onArchive("transactions")}><strong>{transactionCount}</strong><span>互助记录</span><small>公开、私密与更正状态</small></button></div><SectionTitle eyebrow="OPEN NOW" title="我目前的需要 / 提供" action="公开设置" onAction={onSettings}/><div className="my-board"><button className="my-need" onClick={() => onArchive("listings")}><Pill color="pink">我想要</Pill><h3>{activeNeed?.title ?? "还没有发布中的需要"}</h3><span>{activeNeed ? `${activeNeed.visibility === "cross-circle" ? "跨圈公开" : "圈内可见"} · 查看完整内容` : "可以从“说一句”开始"}</span></button><button className="my-offer" onClick={() => onArchive("listings")}><Pill color="green">我可以给</Pill><h3>{activeOffer?.title ?? "还没有发布中的提供"}</h3><span>{activeOffer ? `${activeOffer.circleIds.length} 个圈可见 · 查看完整内容` : "让大家发现你的能力"}</span></button></div><SectionTitle eyebrow="MY CIRCLES" title="我的圈子" action="创建新圈" onAction={onCreate}/><div className="my-circles">{circles.filter((circle) => me.circleIds.includes(circle.id)).map((circle) => { const account = accountFor(me.id, circle.id); return <button className="my-circle" key={circle.id} onClick={() => onCircle(circle.id)}><Character text={circle.short} color={circle.color} variant={circle.id === "qiao" ? "wave" : circle.id === "human" ? "crop" : "leaf"} small/><span><b>{circle.name}</b><small>{circle.role} · {circle.members} 人</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div><button className="text-link" onClick={onLogout} style={{ marginTop: "18px" }}>退出登录</button></>;
 }
 
 function FeedList({ posts: list, onProfile, onShare, onPost }: { posts: Post[]; onProfile: (id?: string) => void; onShare: () => void; onPost: (id: number) => void }) {
