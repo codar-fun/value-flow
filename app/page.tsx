@@ -464,6 +464,17 @@ function ComposerSheet({ circleId, intent, setIntent, draft, setDraft, currentDr
   const [text, setText] = useState(currentDraft.spoken);
   const [assistantDraft, setAssistantDraft] = useState<AssistantDraft | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  // Manual ("古法填写") mode: pick a member + amount instead of natural language.
+  const [mode, setMode] = useState<"assist" | "manual">("assist");
+  const [otherId, setOtherId] = useState("");
+  const [direction, setDirection] = useState<"received" | "given">("received");
+  const [amount, setAmount] = useState("");
+  const [manualNote, setManualNote] = useState("");
+
+  const circle = circleById(circleId);
+  const others = circle.memberIds.map((mid) => memberById(mid)).filter((m) => m && m.id !== activeDb.currentMemberId);
+  const manualCapable = intent === "record" || intent === "card";
+
   async function analyze() {
     try {
       setAnalyzing(true);
@@ -474,6 +485,26 @@ function ComposerSheet({ circleId, intent, setIntent, draft, setDraft, currentDr
     finally { setAnalyzing(false); }
   }
 
+  // Build a draft from the manual form and hand it to the same review/confirm UI.
+  function submitManual() {
+    const other = others.find((m) => m.id === otherId);
+    if (!other) { onNotice("先选择一位成员"); return; }
+    const me = activeDb.currentMemberId;
+    if (intent === "record") {
+      const amt = Math.trunc(Number(amount));
+      if (!Number.isFinite(amt) || amt <= 0) { onNotice("请填写大于 0 的额度"); return; }
+      const providerId = direction === "received" ? other.id : me;
+      const receiverId = direction === "received" ? me : other.id;
+      const title = manualNote.trim() || (direction === "received" ? `${other.name}帮了我` : `我帮了${other.name}`);
+      setAssistantDraft({ intent: "record", title, detail: title, footer: `${memberById(providerId).name} → ${memberById(receiverId).name} · ${amt} ${circle.currency}`, fields: { circle_id: circleId, provider_id: providerId, receiver_id: receiverId, amount: amt, visibility: "public", tags: ["互助"] }, source: "local" });
+    } else {
+      const story = manualNote.trim();
+      if (!story) { onNotice("写一句想对 TA 说的话"); return; }
+      setAssistantDraft({ intent: "card", title: `给${other.name}一张好人卡`, detail: story, footer: "跨圈公开 · 不产生余额", fields: { circle_id: circleId, to_id: other.id, visibility: "cross-circle", tags: ["感谢"] }, source: "local" });
+    }
+    setDraft(true);
+  }
+
   function setVisibility(value:string) {
     if (!assistantDraft) return;
     const visibility = intent === "record" ? (value === "mystery" ? "mystery" : value === "private" ? "private" : "public") : intent === "card" ? (value === "private" ? "hidden" : "cross-circle") : value === "public" ? "cross-circle" : "circle";
@@ -481,7 +512,7 @@ function ComposerSheet({ circleId, intent, setIntent, draft, setDraft, currentDr
   }
 
   const visibleDraft=assistantDraft ?? {intent,title:currentDraft.title,detail:currentDraft.detail,footer:currentDraft.footer,fields:{circleId},source:"local" as const};
-  return <Modal onClose={onClose} label="说一句"><div className="sheet-agent"><div className="mini-agent">◕‿◕</div><div><span>泡泡助手</span><h2>{draft ? "我整理成这样，对吗？" : "你想让什么流动起来？"}</h2><p>{draft ? "确认前可以修改，发布后也可以撤回。" : "先选一种，再像平常说话一样告诉我。"}</p></div></div>{!draft ? <><div className="intent-grid">{intents.map((item) => <button key={item.id} className={`intent intent-${item.color} ${intent === item.id ? "selected" : ""}`} onClick={() => setIntent(item.id)}><b>{item.icon}</b><span><strong>{item.label}</strong><small>{item.hint}</small></span></button>)}</div>{typing ? <label className="typing-box"><span>把事情写下来</span><textarea value={text} onChange={(event)=>setText(event.target.value)} maxLength={2000}/></label> : <div className="voice-box"><span className="wave"><i/><i/><i/><i/><i/><i/><i/></span><p>{text}</p><button className="record-circle" onClick={() => onNotice("语音接口已留好位置；现在先使用键盘输入")} aria-label="开始录音">●</button></div>}<button className="primary-button" disabled={analyzing||!text.trim()} onClick={analyze}>{analyzing?"泡泡助手正在整理…":"让泡泡助手整理一下"} <b>→</b></button><button className="text-link" onClick={() => setTyping(!typing)}>{typing ? "切换回语音入口" : "切换为键盘输入"}</button></> : <><div className={`draft-card draft-${intents.find((item) => item.id === intent)?.color ?? "yellow"}`}><Pill color="cream">草稿 · 可修改</Pill><h3>{visibleDraft.title}</h3><p>{visibleDraft.detail}</p><div>{visibleDraft.footer}</div></div><label className="visibility-row"><span>让谁看见</span><select defaultValue={intent === "card" ? "public" : "circle"} onChange={(event)=>setVisibility(event.target.value)}><option value="circle">相关圈子</option><option value="public">跨圈公开</option>{intent === "record" && <option value="mystery">神秘记录</option>}<option value="private">仅自己 / 当事人</option></select></label><p className="soft-note">发布不等于强制履约。任何人都可以拒绝、修改或撤回。</p><div className="sheet-actions"><button className="secondary-button" onClick={() => setDraft(false)}>返回修改</button><button className="primary-button" disabled={!assistantDraft} onClick={() => assistantDraft && onConfirm(assistantDraft)}>确认发布 <b>→</b></button></div></>}</Modal>;
+  return <Modal onClose={onClose} label="说一句"><div className="sheet-agent"><div className="mini-agent">◕‿◕</div><div><span>泡泡助手</span><h2>{draft ? "我整理成这样，对吗？" : "你想让什么流动起来？"}</h2><p>{draft ? "确认前可以修改，发布后也可以撤回。" : "先选一种，再像平常说话一样告诉我。"}</p></div></div>{!draft ? <><div className="intent-grid">{intents.map((item) => <button key={item.id} className={`intent intent-${item.color} ${intent === item.id ? "selected" : ""}`} onClick={() => setIntent(item.id)}><b>{item.icon}</b><span><strong>{item.label}</strong><small>{item.hint}</small></span></button>)}</div>{manualCapable && <div className="compose-mode-row"><button className={mode==="assist"?"active":""} onClick={()=>setMode("assist")}>泡泡助手</button><button className={mode==="manual"?"active":""} onClick={()=>setMode("manual")}>古法填写</button></div>}{manualCapable && mode==="manual" ? (others.length===0 ? <p className="soft-note">这个圈子还没有其他成员。先到圈子页“邀请成员”，对方加入后就可以互相记录了。</p> : <div className="manual-form"><label><span>{intent==="record"?"和谁的互助":"把好人卡送给谁"}</span><select value={otherId} onChange={(e)=>setOtherId(e.target.value)}><option value="">选择一位成员</option>{others.map((m)=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label>{intent==="record" && <><div className="manual-choice"><button className={direction==="received"?"active":""} onClick={()=>setDirection("received")}>对方帮了我</button><button className={direction==="given"?"active":""} onClick={()=>setDirection("given")}>我帮了对方</button></div><label><span>额度（{circle.currency}）</span><input inputMode="numeric" value={amount} onChange={(e)=>setAmount(e.target.value)} placeholder="例如 5"/></label></>}<label><span>{intent==="record"?"备注（可选）":"想说的话"}</span><input value={manualNote} onChange={(e)=>setManualNote(e.target.value)} placeholder={intent==="record"?"一起做了什么":"谢谢 TA 的……"}/></label><button className="primary-button" disabled={!otherId} onClick={submitManual}>生成草稿 <b>→</b></button></div>) : <>{typing ? <label className="typing-box"><span>把事情写下来</span><textarea value={text} onChange={(event)=>setText(event.target.value)} maxLength={2000}/></label> : <div className="voice-box"><span className="wave"><i/><i/><i/><i/><i/><i/><i/></span><p>{text}</p><button className="record-circle" onClick={() => onNotice("语音接口已留好位置；现在先使用键盘输入")} aria-label="开始录音">●</button></div>}<button className="primary-button" disabled={analyzing||!text.trim()} onClick={analyze}>{analyzing?"泡泡助手正在整理…":"让泡泡助手整理一下"} <b>→</b></button><button className="text-link" onClick={() => setTyping(!typing)}>{typing ? "切换回语音入口" : "切换为键盘输入"}</button></>}</> : <><div className={`draft-card draft-${intents.find((item) => item.id === intent)?.color ?? "yellow"}`}><Pill color="cream">草稿 · 可修改</Pill><h3>{visibleDraft.title}</h3><p>{visibleDraft.detail}</p><div>{visibleDraft.footer}</div></div><label className="visibility-row"><span>让谁看见</span><select defaultValue={intent === "card" ? "public" : "circle"} onChange={(event)=>setVisibility(event.target.value)}><option value="circle">相关圈子</option><option value="public">跨圈公开</option>{intent === "record" && <option value="mystery">神秘记录</option>}<option value="private">仅自己 / 当事人</option></select></label><p className="soft-note">发布不等于强制履约。任何人都可以拒绝、修改或撤回。</p><div className="sheet-actions"><button className="secondary-button" onClick={() => setDraft(false)}>返回修改</button><button className="primary-button" disabled={!assistantDraft} onClick={() => assistantDraft && onConfirm(assistantDraft)}>确认发布 <b>→</b></button></div></>}</Modal>;
 }
 
 function ShareSheet({ onClose, onDone }: { onClose: () => void; onDone: () => Promise<void> }) {

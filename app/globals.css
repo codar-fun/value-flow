@@ -420,4 +420,13 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 .join-card > div p { margin: 8px 0 0; line-height: 1.6; }
 .join-card button, .join-card a { display: block; width: 100%; padding: 16px; border: 3px solid var(--ink); border-radius: 14px; background: var(--green); box-shadow: 5px 5px 0 var(--ink); color: var(--ink); text-align: center; font-weight: 900; text-decoration: none; }
 
+/* composer manual ("古法填写") form */
+.compose-mode-row, .manual-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+.compose-mode-row button, .manual-choice button { min-height: 42px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper-strong); padding: 9px; font-size: 11px; font-weight: 900; }
+.compose-mode-row button.active, .manual-choice button.active { background: var(--yellow); box-shadow: 2px 3px 0 var(--ink); transform: translate(-1px,-1px); }
+.manual-form { display: grid; gap: 11px; margin: 12px 0; }
+.manual-form label { border: 2px solid var(--ink); border-radius: 14px; background: var(--paper-strong); padding: 10px 13px; display: grid; gap: 6px; }
+.manual-form label > span { font: 850 8px ui-monospace,monospace; letter-spacing: .06em; }
+.manual-form select, .manual-form input { width: 100%; border: 0; border-bottom: 2px solid var(--ink); background: transparent; padding: 6px 2px; font: 800 14px inherit; outline: none; }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
