@@ -1,0 +1,48 @@
+service: flow-circle
+image: ghcr.io/jiangplus/flow-circle
+
+runner: nomad
+egress: traefik
+
+servers:
+  web:
+    hosts: [sg.sola.day]
+    primary: true
+
+registry:
+  server: ghcr.io
+  username: jiangplus
+  password: GHCR_TOKEN
+
+proxy:
+  hosts: [flow.sola.day]
+  app_port: 3000
+  ssl: true
+  health_check_path: /api/health
+
+ssh:
+  user: root
+
+# Build natively on the amd64 target host (avoids slow QEMU cross-builds).
+builder:
+  arch: amd64
+  remote: ssh://root@sg.sola.day
+
+env:
+  PORT: "3000"
+  # The frontend proxies loop-backend server-side; this is the default anyway.
+  LOOP_API_BASE: https://loop-api.sola.day/api
+
+# Memory over-provisioning: tiny reservation for bin-packing, burst via
+# memory_max (Node/vinext needs more headroom than the static loop-app).
+resources:
+  cpu: 100
+  memory: 12
+  memory_max: 512
+
+retain_containers: 5
+
+secrets:
+  load: [.env.production]
+  inject:
+    - GHCR_TOKEN
