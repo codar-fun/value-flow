@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { demoDb, type AvatarVariant, type Circle, type Color, type Member } from "./demo-data";
+import type { AvatarVariant, Circle, Color, Member } from "./demo-data";
 import type { AppDatabase } from "../db/runtime";
 import type { AssistantDraft } from "./api/assistant/draft/route";
 
@@ -31,7 +31,9 @@ type Post = {
   sourceId: string;
 };
 
-const initialDb: AppDatabase = { ...(demoDb as unknown as Omit<AppDatabase, "settings" | "session" | "currentMemberId">), settings: { publicCards: true, publicListings: true, keepHiddenPrivate: true }, session: { authenticated: false }, currentMemberId: "qiaoye" };
+// Empty world until the loop-backend session loads — no demo/default user.
+const initialDb: AppDatabase = { members: [], circles: [], accounts: [], listings: [], goodCards: [], transactions: [], activity: [], settings: { publicCards: true, publicListings: true, keepHiddenPrivate: true }, session: { authenticated: false }, currentMemberId: "" };
+const EMPTY_CIRCLE: Circle = { id: "", name: "", short: "•", color: "green", currency: "积分", members: 0, role: "", location: "", tagline: "", intro: "", scene: "", joining: "", invitation: "", principles: [], rules: [], references: [], memberIds: [] };
 let activeDb = initialDb;
 let members = activeDb.members;
 let circles = activeDb.circles;
@@ -191,7 +193,7 @@ export default function Home() {
   const [toast, setToast] = useState("");
 
   activeDb = db; members = db.members; circles = db.circles; posts = buildPosts();
-  const currentMemberId = db.currentMemberId || "qiaoye";
+  const currentMemberId = db.currentMemberId;
 
   async function refreshData() {
     const response = await fetch("/api/bootstrap", { cache: "no-store" });
@@ -206,7 +208,7 @@ export default function Home() {
     return()=>{active=false;};
   }, []);
 
-  const activeCircle = circles.find((item) => item.id === circleId) ?? circles[0] ?? initialDb.circles[0];
+  const activeCircle = circles.find((item) => item.id === circleId) ?? circles[0] ?? EMPTY_CIRCLE;
   const activeAccount = accountFor(currentMemberId, activeCircle.id);
   const selectedMember = memberById(selectedMemberId);
   const selectedPost = posts.find((post) => post.id === selectedPostId) ?? posts[0];
