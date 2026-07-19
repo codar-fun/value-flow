@@ -1,33 +1,18 @@
-import { bodyJson, ensureDatabase, json, resolveCurrentMember, runtimeEnv } from "../../../db/runtime";
+import { withLoop } from "@/app/lib/loop";
 
-type ProfileInput = {
-  name: string;
-  role: string;
-  wechat?: string;
-};
-
+// PUT /api/profile  {name, role?, wechat?} — updates the display name on
+// loop-backend. (loop has no per-user role/wechat; those fields are ignored.)
 export async function PUT(request: Request) {
-  try {
-    if (!request.headers.get("oai-authenticated-user-email")) {
-      return json({ error: "请先使用 ChatGPT 登录。" }, { status: 401 });
-    }
+  const input = (await request.json().catch(() => ({}))) as { name?: string };
+  const name = input.name?.trim();
+  if (!name || name.length > 40) return Response.json({ error: "请填写昵称。" }, { status: 400 });
 
-    const input = await bodyJson<ProfileInput>(request);
-    const name = input.name?.trim();
-    const role = input.role?.trim();
-    const wechat = input.wechat?.trim() ?? "";
-    if (!name || !role || name.length > 40 || role.length > 40 || wechat.length > 80) {
-      return json({ error: "请填写昵称和你在社区里的角色。" }, { status: 400 });
-    }
+  return withLoop(request, async (token, call) => {
+    if (!token) return Response.json({ error: "未登录" }, { status: 401 });
 
-    const db = runtimeEnv().DB;
-    await ensureDatabase(db);
-    const memberId = await resolveCurrentMember(request, db);
-    await db.prepare("UPDATE members SET name=?,initial=?,role=?,wechat=? WHERE id=?")
-      .bind(name, name.slice(0, 1), role, wechat, memberId)
-      .run();
-    return json({ ok: true });
-  } catch (error) {
-    return json({ error: error instanceof Error ? error.message : "建档失败" }, { status: 500 });
-  }
+    const res = await call("/me", { method: "PATCH", body: JSON.stringify({ display_name: name }) });
+    const data = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    if (!res.ok) return Response.json({ error: data.error?.message || "建档失败" }, { status: res.status });
+    return Response.json({ ok: true });
+  });
 }

@@ -1,2 +1,27 @@
-import { bodyJson, ensureDatabase, json, resolveCurrentMember, runtimeEnv } from "../../../db/runtime";
-export async function PUT(request:Request){try{const input=await bodyJson<{publicCards:boolean;publicListings:boolean;keepHiddenPrivate:boolean}>(request);const db=runtimeEnv().DB;await ensureDatabase(db);const me=await resolveCurrentMember(request,db);await db.prepare("INSERT INTO user_settings (member_id,public_cards,public_listings,keep_hidden_private,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET public_cards=excluded.public_cards,public_listings=excluded.public_listings,keep_hidden_private=excluded.keep_hidden_private,updated_at=excluded.updated_at").bind(me,input.publicCards?1:0,input.publicListings?1:0,input.keepHiddenPrivate?1:0,Date.now()).run();return json({ok:true});}catch(error){return json({error:error instanceof Error?error.message:"保存失败"},{status:500});}}
+import { withLoop } from "@/app/lib/loop";
+
+// PUT /api/settings  {publicCards, publicListings, keepHiddenPrivate}
+export async function PUT(request: Request) {
+  const input = (await request.json().catch(() => ({}))) as {
+    publicCards?: boolean;
+    publicListings?: boolean;
+    keepHiddenPrivate?: boolean;
+  };
+
+  return withLoop(request, async (token, call) => {
+    if (!token) return Response.json({ error: "未登录" }, { status: 401 });
+
+    const res = await call("/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        public_cards: input.publicCards,
+        public_listings: input.publicListings,
+        keep_hidden_private: input.keepHiddenPrivate,
+      }),
+    });
+
+    const data = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    if (!res.ok) return Response.json({ error: data.error?.message || "保存失败" }, { status: res.status });
+    return Response.json({ ok: true });
+  });
+}

@@ -1,6 +1,54 @@
-import { bodyJson, ensureDatabase, id, json, resolveCurrentMember, runtimeEnv } from "../../../db/runtime";
+import { withLoop } from "@/app/lib/loop";
 
-type CircleInput={name:string;short:string;currency:string;tagline:string;scene:string;joining:string;visibility:string;needs:boolean;cards:boolean;mystery:boolean;allowExit:boolean;referenceName:string;referenceValue:string};
-export async function POST(request:Request){try{const input=await bodyJson<CircleInput>(request); if(!input.name?.trim()||!input.currency?.trim()||input.name.length>60) return json({error:"请填写圈子名称和互助额度名称。"},{status:400}); const db=runtimeEnv().DB; await ensureDatabase(db); const me=await resolveCurrentMember(request,db); const circleId=id("circle"); const now=Date.now(); const rules=["只记录已经完成的互助，未完成的约定不改变余额。","任何人都可以拒绝具体请求，负余额不是信用污点。",...(input.mystery?["允许使用隐藏人物和故事的神秘记录。"]:[]),...(input.allowExit?["成员可以暂停或退出，并带走自己的记录。"]:[])]; const settings={visibility:input.visibility,needs:input.needs,cards:input.cards,mystery:input.mystery,allowExit:input.allowExit}; await db.batch([
-db.prepare("INSERT INTO circles (id,name,short,color,currency,role,location,tagline,intro,scene,joining,invitation,principles_json,rules_json,references_json,settings_json,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(circleId,input.name.trim(),input.short?.trim().slice(0,2)||"圈","green",input.currency.trim(),"创建者",input.scene,input.tagline.trim(),input.tagline.trim(),input.scene,input.joining,input.joining==="direct"?"受邀后可直接加入":"受邀后由管理员审批",JSON.stringify(["不与人民币兑换","不做贡献排名","可以问，也可以拒绝"]),JSON.stringify(rules),JSON.stringify(input.referenceName?[{name:input.referenceName,value:input.referenceValue,note:"只是协商参考，不是统一价格"}]:[]),JSON.stringify(settings),me,now),
-db.prepare("INSERT INTO memberships (id,circle_id,member_id,role,status,joined_at) VALUES (?,?,?,?,?,?)").bind(`${circleId}:${me}`,circleId,me,"owner","active",now),db.prepare("INSERT INTO accounts (id,circle_id,member_id,balance,given,received,updated_at) VALUES (?,?,?,?,?,?,?)").bind(`${circleId}:${me}`,circleId,me,0,0,0,now)]); return json({ok:true,id:circleId},{status:201});}catch(error){console.error(error);return json({error:error instanceof Error?error.message:"创建失败"},{status:500});}}
+// CreateCircleView's input (a subset is used; extras are ignored).
+type CircleInput = {
+  name?: string;
+  short?: string;
+  currency?: string;
+  tagline?: string;
+  joining?: string;
+  allowNegative?: boolean;
+  requireConfirmation?: boolean;
+  allowRejectCorrect?: boolean;
+};
+
+// loop requires a #RRGGBB color; pick a stable one from a small palette.
+const PALETTE = ["#e8935a", "#7ec99a", "#6aa7d8", "#d98cae", "#e0b750"];
+function colorFor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return PALETTE[h % PALETTE.length];
+}
+
+// POST /api/circles — create a mutual-aid circle on loop-backend.
+export async function POST(request: Request) {
+  const input = (await request.json().catch(() => ({}))) as CircleInput;
+  if (!input.name?.trim() || !input.currency?.trim())
+    return Response.json({ error: "请填写圈子名称和互助额度名称。" }, { status: 400 });
+
+  return withLoop(request, async (token, call) => {
+    if (!token) return Response.json({ error: "未登录" }, { status: 401 });
+
+    const res = await call("/circles", {
+      method: "POST",
+      body: JSON.stringify({
+        name: input.name!.trim(),
+        icon: (input.short?.trim() || "✨").slice(0, 2),
+        color: colorFor(input.name!),
+        currency: input.currency!.trim(),
+        description: input.tagline?.trim() || "",
+        joining: input.joining === "approval" ? "approval" : "direct",
+        settings: {
+          // Per product decision, the create form defaults negative balances ON.
+          allow_negative_balance: input.allowNegative ?? true,
+          require_confirmation: input.requireConfirmation ?? false,
+          allow_reject_correct: input.allowRejectCorrect ?? false,
+        },
+      }),
+    });
+
+    const data = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
+    if (!res.ok) return Response.json({ error: data.error?.message || "创建失败" }, { status: res.status });
+    return Response.json({ ok: true, id: data.id }, { status: 201 });
+  });
+}

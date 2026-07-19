@@ -112,8 +112,70 @@ function SectionTitle({ eyebrow, title, action, onAction }: { eyebrow?: string; 
   return <div className="section-title"><div>{eyebrow && <span>{eyebrow}</span>}<h2>{title}</h2></div>{action && <button onClick={onAction}>{action}<b>→</b></button>}</div>;
 }
 
+function LoginGate({ onDone }: { onDone: () => Promise<void> }) {
+  const [step, setStep] = useState<"email" | "code" | "profile">("email");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [username, setUsername] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function post(path: string, body: unknown) {
+    const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((data as { error?: string }).error || "操作失败");
+    return data as Record<string, unknown>;
+  }
+
+  async function requestCode() {
+    if (!email.trim()) return setError("请填写邮箱");
+    setBusy(true); setError("");
+    try { await post("/api/auth/request", { email: email.trim() }); setStep("code"); }
+    catch (e) { setError(e instanceof Error ? e.message : "发送失败"); }
+    finally { setBusy(false); }
+  }
+
+  async function verify() {
+    if (!code.trim()) return setError("请填写验证码");
+    setBusy(true); setError("");
+    try {
+      const data = await post("/api/auth/verify", { email: email.trim(), code: code.trim() });
+      if (data.needs_profile) { setStep("profile"); setBusy(false); return; }
+      await onDone();
+    } catch (e) { setError(e instanceof Error ? e.message : "验证失败"); setBusy(false); }
+  }
+
+  async function finishProfile() {
+    if (!username.trim()) return setError("请填写用户名");
+    setBusy(true); setError("");
+    try { await post("/api/auth/profile", { username: username.trim() }); await onDone(); }
+    catch (e) { setError(e instanceof Error ? e.message : "保存失败"); setBusy(false); }
+  }
+
+  return <main className="join-page"><section className="join-card">
+    <span>FLOW CIRCLE · 登录流动圈</span>
+    <h1>{step === "profile" ? "给自己取个名字" : "用邮箱验证码登录"}</h1>
+    <p>{step === "email" ? "输入邮箱，我们会发送一次性验证码。" : step === "code" ? `验证码已发送到 ${email}` : "这个名字会显示在圈子里。"}</p>
+    {error && <p style={{ color: "#c0492f" }}>{error}</p>}
+    {step === "email" && <>
+      <input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email"/>
+      <button onClick={requestCode} disabled={busy}>{busy ? "发送中…" : "发送验证码"}</button>
+    </>}
+    {step === "code" && <>
+      <input inputMode="numeric" placeholder="6 位验证码" value={code} onChange={(e) => setCode(e.target.value)}/>
+      <button onClick={verify} disabled={busy}>{busy ? "验证中…" : "登录"}</button>
+      <button className="text-link" onClick={() => { setStep("email"); setError(""); }}>换一个邮箱</button>
+    </>}
+    {step === "profile" && <>
+      <input placeholder="用户名（英文/数字）" value={username} onChange={(e) => setUsername(e.target.value)}/>
+      <button onClick={finishProfile} disabled={busy}>{busy ? "保存中…" : "进入流动圈"}</button>
+    </>}
+  </section></main>;
+}
+
 export default function Home() {
   const [db, setDb] = useState<AppDatabase>(initialDb);
+  const [loaded, setLoaded] = useState(false);
   const [view, setView] = useState<View>("feed");
   const [circleId, setCircleId] = useState("qiao");
   const [feedCircleId, setFeedCircleId] = useState("all");
@@ -140,7 +202,7 @@ export default function Home() {
 
   useEffect(() => {
     let active=true;
-    fetch("/api/bootstrap",{cache:"no-store"}).then(async (response)=>{const payload=await response.json() as AppDatabase&{error?:string};if(!response.ok)throw new Error(payload.error||"数据加载失败");if(active)setDb(payload);}).catch((error)=>{if(active)flash(error instanceof Error?error.message:"暂时无法连接数据服务");});
+    fetch("/api/bootstrap",{cache:"no-store"}).then(async (response)=>{const payload=await response.json() as AppDatabase&{error?:string};if(!response.ok)throw new Error(payload.error||"数据加载失败");if(active)setDb(payload);}).catch((error)=>{if(active)flash(error instanceof Error?error.message:"暂时无法连接数据服务");}).finally(()=>{if(active)setLoaded(true);});
     return()=>{active=false;};
   }, []);
 
@@ -166,6 +228,10 @@ export default function Home() {
     setToast(message);
     window.setTimeout(() => setToast(""), 2400);
   }
+
+  // Auth gate: wait for the first bootstrap, then require a loop-backend session.
+  if (!loaded) return <main className="world-shell login-splash"><p>正在连接流动圈…</p></main>;
+  if (!db.session.authenticated) return <LoginGate onDone={async () => { setLoaded(false); await refreshData(); setLoaded(true); }}/>;
 
   function openComposer(nextIntent: ComposerType = "record") {
     setIntent(nextIntent); setDraft(false); setComposer(true);
@@ -216,7 +282,7 @@ export default function Home() {
 
     <section className="phone-stage">
       <div className={`app-frame ${view === "about" || view === "create" ? "about-open" : ""}`}>
-        <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流</span><i/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : view === "create" ? "NEW CIRCLE · 创建向导" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : view === "create" ? "创建新圈子" : `你好，${memberById(currentMemberId).name}！`}</h1></div><button className="avatar-button" onClick={() => db.session.authenticated ? setView("me") : window.location.assign("/signin-with-chatgpt?return_to=%2F")} aria-label={db.session.authenticated ? "打开我的主页" : "登录或注册"}><Character member={memberById(currentMemberId)}/></button></header>
+        <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流</span><i/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : view === "create" ? "NEW CIRCLE · 创建向导" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : view === "create" ? "创建新圈子" : `你好，${memberById(currentMemberId).name}！`}</h1></div><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById(currentMemberId)}/></button></header>
         {view !== "about" && view !== "create" && <nav className="circle-switcher" aria-label="切换动态范围"><button className={`all-switch ${feedCircleId === "all" && view === "feed" ? "selected" : ""}`} onClick={showAllCircles}><span className="circle-dot dot-all"/><span>全部圈子</span><b>{posts.length}</b></button>{circles.filter((item) => memberById(currentMemberId).circleIds.includes(item.id)).map((item) => { const account = accountFor(currentMemberId, item.id); return <button key={item.id} className={feedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><span className={`circle-dot dot-${item.color}`}/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>}
         <div className="view-content">
           {view === "about" && <AboutView onExplore={showAllCircles} onCreate={openCreateCircle} onCircle={(id) => selectCircle(id, "circle")}/>}
