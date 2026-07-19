@@ -1,0 +1,25 @@
+app/api/health/route.ts
+  s_48a3d075bd0133::t_e270f2bda976f9 1-4
+Dockerfile
+  s_48a3d075bd0133::t_52b55917ccebbf 1-19
+.dockerignore
+  s_48a3d075bd0133::t_da03e9ec3b8e4a 1-9
+ginger.yml
+  s_48a3d075bd0133::t_db48927d77f93c 1-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "df7da8910a64bb39a1a273a5bce52fe9580ec153",
+  "prompts": {},
+  "sessions": {
+    "s_48a3d075bd0133": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb01a44c-eda1-4b04-97da-246e51ecce9e",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
