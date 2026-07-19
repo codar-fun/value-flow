@@ -1,0 +1,19 @@
+Dockerfile
+  s_48a3d075bd0133::t_434ce05486c4b4 4,12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "6f0a64a16a2bae1a5eee3b551b512e646ec2138b",
+  "prompts": {},
+  "sessions": {
+    "s_48a3d075bd0133": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb01a44c-eda1-4b04-97da-246e51ecce9e",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
