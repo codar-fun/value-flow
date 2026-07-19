@@ -1,0 +1,22 @@
+app/page.tsx
+  s_48a3d075bd0133::t_e03d54fa5a8972 196
+  s_48a3d075bd0133::t_40016a6d055e5c 211
+  s_48a3d075bd0133::t_c6827f69901f40 4
+  s_48a3d075bd0133::t_1c96091052e2bd 34-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "a68f950661cdb55211343fd25d562f208fdb1e6d",
+  "prompts": {},
+  "sessions": {
+    "s_48a3d075bd0133": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb01a44c-eda1-4b04-97da-246e51ecce9e",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
