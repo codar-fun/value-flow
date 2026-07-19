@@ -9,8 +9,20 @@
 // Access tokens are used directly until near expiry, then a single refresh
 // mints a new pair. Cookies are set on the outgoing response.
 
-export const LOOP_API_BASE =
-  process.env.LOOP_API_BASE?.replace(/\/$/, "") || "https://loop-api.sola.day/api";
+// `process` is not defined in the Cloudflare Worker runtime — guard the access
+// (and use bracket lookup so Next's build doesn't statically inline it) so the
+// module can't crash at load time. Defaults to production.
+export const LOOP_API_BASE = ((): string => {
+  try {
+    if (typeof process !== "undefined" && process.env) {
+      const v = (process.env as Record<string, string | undefined>)["LOOP_API_BASE"];
+      if (v) return v.replace(/\/$/, "");
+    }
+  } catch {
+    /* ignore */
+  }
+  return "https://loop-api.sola.day/api";
+})();
 
 const RT = "loop_rt";
 const AT = "loop_at";
