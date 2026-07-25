@@ -434,7 +434,7 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 /* Composer forms: textareas alongside the existing inputs, plus the circle
    multi-select for 需要 / 提供. */
 .manual-form textarea { width: 100%; border: 0; border-bottom: 2px solid var(--ink); background: transparent; padding: 6px 2px; font: 800 12px/1.5 inherit; outline: none; resize: vertical; }
-.manual-form .inline-check { flex-direction: row; align-items: center; gap: 11px; }
+.manual-form .inline-check { display: flex; flex-direction: row; align-items: center; gap: 11px; }
 .manual-form .inline-check input { width: 22px; height: 22px; border: 0; accent-color: var(--ink); }
 .manual-form .inline-check > span { display: flex; flex-direction: column; gap: 3px; }
 .manual-form .inline-check b { font-size: 11px; }
