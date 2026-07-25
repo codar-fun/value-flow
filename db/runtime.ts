@@ -1,14 +1,20 @@
 // Adapter layer: shapes loop-backend responses into the `AppDatabase` the CC
-// frontend already expects. (Replaces the former Cloudflare D1 data layer.)
+// frontend renders from. (Replaces the former Cloudflare D1 data layer.)
+//
+// Every field is carried over from loop; the only invented values are `color`
+// and `avatar`, which pick one of the UI's CSS variants and are derived
+// deterministically from the row's id when loop has nothing to say.
 import type {
   AvatarVariant,
   Circle,
+  CircleReference,
   Color,
+  DiscoverableCircle,
   GoodCard,
   Listing,
   Member,
   Transaction,
-} from "../app/demo-data";
+} from "../app/types";
 
 export type AppDatabase = {
   members: Member[];
@@ -49,9 +55,18 @@ type LoopAccount = {
   avatar: string | null;
   bio: string | null;
   address: string | null;
+  wechat_contact?: string | null;
 };
 
-type LoopCircle = {
+type LoopSettings = {
+  allow_negative_balance?: boolean;
+  require_confirmation?: boolean;
+  allow_reject_correct?: boolean;
+  references?: { name?: string; value?: string; note?: string }[];
+  rules?: string[];
+};
+
+export type LoopCircle = {
   id: string;
   name: string;
   icon: string | null;
@@ -59,9 +74,11 @@ type LoopCircle = {
   description: string | null;
   currency: string | null;
   joining: string | null;
-  settings: Record<string, boolean>;
+  settings: LoopSettings;
+  owner_id: string | null;
+  is_member?: boolean;
   member_count: number;
-  member_ids: string[];
+  member_ids?: string[];
 };
 
 export type LoopBootstrap = {
@@ -111,10 +128,20 @@ export type LoopBootstrap = {
   }[];
 };
 
-// ─── deterministic display fillers (loop has no color/avatar enums) ─────────
+// ─── presentation-only derivations ──────────────────────────────────────────
 
 const COLORS: Color[] = ["yellow", "pink", "blue", "green", "coral"];
 const AVATARS: AvatarVariant[] = ["crop", "wave", "cap", "bob", "spike", "curl", "bun", "leaf"];
+
+// The hexes CC writes when creating a circle (see app/api/circles/route.ts),
+// mapped back to the CSS colour name so a circle keeps the look it was made with.
+const HEX_TO_COLOR: Record<string, Color> = {
+  "#e8935a": "coral",
+  "#7ec99a": "green",
+  "#6aa7d8": "blue",
+  "#d98cae": "pink",
+  "#e0b750": "yellow",
+};
 
 function hash(str: string): number {
   let h = 0;
@@ -123,7 +150,19 @@ function hash(str: string): number {
 }
 
 const colorFor = (seed: string): Color => COLORS[hash(seed) % COLORS.length];
-const avatarFor = (seed: string): AvatarVariant => AVATARS[hash(seed) % AVATARS.length];
+
+function circleColor(c: LoopCircle): Color {
+  const hex = (c.color || "").toLowerCase();
+  return HEX_TO_COLOR[hex] ?? colorFor(c.id);
+}
+
+// loop's `avatar` is a free-form string; honour it when it names one of our
+// face variants, otherwise pick a stable one from the id.
+function avatarFor(a: LoopAccount): AvatarVariant {
+  const named = AVATARS.find((v) => v === a.avatar);
+  return named ?? AVATARS[hash(a.id) % AVATARS.length];
+}
+
 const firstChar = (s: string | null | undefined) => (s && s.length ? Array.from(s)[0] : "•");
 
 function formatDate(iso: string | null): string {
@@ -133,13 +172,60 @@ function formatDate(iso: string | null): string {
   return `${d.getMonth() + 1} 月 ${d.getDate()} 日`;
 }
 
+export function toSettings(s: LoopSettings | null | undefined): Circle["settings"] {
+  const raw = s || {};
+  const references: CircleReference[] = (raw.references ?? []).map((r) => ({
+    name: r.name ?? "",
+    value: r.value ?? "",
+    note: r.note ?? "",
+  }));
+  return {
+    allowNegativeBalance: raw.allow_negative_balance === true,
+    requireConfirmation: raw.require_confirmation === true,
+    allowRejectCorrect: raw.allow_reject_correct === true,
+    references,
+    rules: raw.rules ?? [],
+  };
+}
+
+export function toCircle(c: LoopCircle, memberIds: string[] = []): Circle {
+  return {
+    id: c.id,
+    name: c.name,
+    short: c.icon || firstChar(c.name),
+    color: circleColor(c),
+    currency: c.currency || "积分",
+    members: c.member_count,
+    tagline: c.description || "",
+    joining: c.joining === "approval" ? "approval" : "direct",
+    settings: toSettings(c.settings),
+    ownerId: c.owner_id || "",
+    isMember: c.is_member !== false,
+    memberIds,
+  };
+}
+
+/** A circle the user hasn't joined — the "discover" list carries no members. */
+export function toDiscoverable(c: LoopCircle): DiscoverableCircle {
+  return {
+    id: c.id,
+    name: c.name,
+    short: c.icon || firstChar(c.name),
+    color: circleColor(c),
+    currency: c.currency || "积分",
+    members: c.member_count,
+    tagline: c.description || "",
+    joining: c.joining === "approval" ? "approval" : "direct",
+  };
+}
+
 // ─── loop → AppDatabase ─────────────────────────────────────────────────────
 
 export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
   // circleIds per member, derived from each circle's member_ids
   const circleIdsByMember = new Map<string, string[]>();
   for (const c of loop.circles) {
-    for (const mid of c.member_ids) {
+    for (const mid of c.member_ids ?? []) {
       circleIdsByMember.set(mid, [...(circleIdsByMember.get(mid) ?? []), c.id]);
     }
   }
@@ -148,11 +234,12 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     id: a.id,
     name: a.display_name || a.username || "成员",
     initial: firstChar(a.display_name || a.username),
-    role: "",
+    handle: a.handle || "",
     color: colorFor(a.id),
-    avatar: avatarFor(a.id),
+    avatar: avatarFor(a),
     bio: a.bio || "",
-    wechat: "",
+    wechat: a.wechat_contact || "",
+    address: a.address || "",
     circleIds: circleIdsByMember.get(a.id) ?? [],
   });
 
@@ -161,25 +248,7 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
   // the UI always dereferences them, so make sure they're present.
   if (!members.some((m) => m.id === loop.user.id)) members.unshift(toMember(loop.user));
 
-  const circles: Circle[] = loop.circles.map((c) => ({
-    id: c.id,
-    name: c.name,
-    short: c.icon || firstChar(c.name),
-    color: colorFor(c.id),
-    currency: c.currency || "积分",
-    members: c.member_count,
-    role: "",
-    location: "",
-    tagline: c.description || "",
-    intro: c.description || "",
-    scene: "",
-    joining: c.joining === "approval" ? "受邀后需管理员审批" : "受邀后可直接加入",
-    invitation: "邀请链接 7 天有效、单次使用。",
-    principles: [],
-    rules: [],
-    references: [],
-    memberIds: c.member_ids,
-  }));
+  const circles: Circle[] = loop.circles.map((c) => toCircle(c, c.member_ids ?? []));
 
   const accounts = loop.circle_accounts.map((a) => ({
     memberId: a.account_id,
@@ -211,7 +280,6 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     toMemberId: c.to_id,
     story: c.story || "",
     date: formatDate(c.created_at),
-    tags: [],
     visibility: c.visibility === "cross-circle" || c.visibility === "public" ? "cross-circle" : "hidden",
     circleId: c.circle_id || "",
   }));
@@ -226,13 +294,15 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     story: r.story || "",
     happenedAt: formatDate(r.happened_at || r.recorded_at),
     recordedAt: formatDate(r.recorded_at),
-    // CC's Transaction.status has no "pending"; treat it as confirmed for display.
-    visibility: r.visibility === "private" ? "private" : "public",
-    status: r.status === "pending" ? "confirmed" : (r.status as Transaction["status"]),
+    visibility: (r.visibility === "private" || r.visibility === "mystery"
+      ? r.visibility
+      : "public") as Transaction["visibility"],
+    status: r.status as Transaction["status"],
     tags: r.tags,
   }));
 
-  // Unified, recency-sorted activity feed the UI builds posts from.
+  // Unified, recency-sorted activity feed the UI builds posts from. (loop has
+  // no `activities` table — the client assembles it from the three sources.)
   const activity = [
     ...loop.records.map((r) => ({ source: "transaction" as const, sourceId: r.id, ts: r.recorded_at })),
     ...loop.listings.map((l) => ({ source: "listing" as const, sourceId: l.id, ts: l.created_at })),

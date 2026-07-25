@@ -430,3 +430,41 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 .manual-form select, .manual-form input { width: 100%; border: 0; border-bottom: 2px solid var(--ink); background: transparent; padding: 6px 2px; font: 800 14px inherit; outline: none; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+
+/* Composer forms: textareas alongside the existing inputs, plus the circle
+   multi-select for 需要 / 提供. */
+.manual-form textarea { width: 100%; border: 0; border-bottom: 2px solid var(--ink); background: transparent; padding: 6px 2px; font: 800 12px/1.5 inherit; outline: none; resize: vertical; }
+.manual-form .inline-check { flex-direction: row; align-items: center; gap: 11px; }
+.manual-form .inline-check input { width: 22px; height: 22px; border: 0; accent-color: var(--ink); }
+.manual-form .inline-check > span { display: flex; flex-direction: column; gap: 3px; }
+.manual-form .inline-check b { font-size: 11px; }
+.manual-form .inline-check small { color: var(--muted); font-size: 8px; font-weight: 730; }
+.circle-picker { display: flex; flex-wrap: wrap; gap: 7px; margin: 4px 0 12px; }
+.circle-picker button { min-height: 34px; border: 2px solid var(--ink); border-radius: 999px; background: var(--paper-strong); padding: 6px 12px; font-size: 10px; font-weight: 850; display: inline-flex; align-items: center; gap: 6px; }
+.circle-picker button.active { background: var(--yellow); box-shadow: 2px 3px 0 var(--ink); transform: translate(-1px,-1px); }
+
+/* Circles you could still join (discover page + the no-circles start screen). */
+.open-circle-list { display: grid; gap: 9px; margin: 12px 0; }
+.open-circle-list > b { font: 850 8px ui-monospace,monospace; letter-spacing: .06em; }
+.open-circle-list button { min-height: 62px; border: 3px solid var(--ink); border-radius: 16px; background: var(--paper-strong); box-shadow: 3px 4px 0 var(--ink); padding: 10px 13px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 11px; text-align: left; }
+.open-circle-list button > span:nth-child(2) { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.open-circle-list b { font-size: 12px; }
+.open-circle-list small { color: var(--muted); font-size: 8px; font-weight: 730; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.open-circle-list strong { font-size: 10px; }
+
+/* Circle settings: the toggle summary shown to members, the reference editor
+   shown to the owner. */
+.toggle-summary { display: grid; gap: 8px; margin-bottom: 15px; }
+.toggle-summary > div { border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); padding: 10px 13px; display: grid; gap: 4px; opacity: .55; }
+.toggle-summary > div.on { background: var(--paper-strong); opacity: 1; }
+.toggle-summary b { font-size: 11px; }
+.toggle-summary span { color: var(--muted); font-size: 9px; font-weight: 730; line-height: 1.45; }
+.reference-editor-list { display: grid; gap: 8px; margin: 6px 0 10px; }
+.reference-editor-list > div { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 8px; border: 2px solid var(--ink); border-radius: 13px; background: var(--paper); padding: 9px 11px; }
+.reference-editor-list input { width: 100%; border: 0; border-bottom: 2px solid var(--ink); background: transparent; padding: 5px 2px; font: 800 11px inherit; outline: none; }
+
+.me-actions { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; margin-top: 18px; }
+
+@media (max-width: 900px) {
+  .reference-editor-list > div { grid-template-columns: 1fr; }
+}
