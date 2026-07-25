@@ -1,0 +1,19 @@
+pnpm-lock.yaml
+  s_48a3d075bd0133::t_41cc354c63a5c1 3672,4619,5993
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "19a0f782e963a89ccb42fa46691a13cbd8afd802",
+  "prompts": {},
+  "sessions": {
+    "s_48a3d075bd0133": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb01a44c-eda1-4b04-97da-246e51ecce9e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
