@@ -1,0 +1,38 @@
+tests/rendered-html.test.mjs
+  s_48a3d075bd0133::t_a53f4f7cec1583 82-91,94-95
+db/runtime.ts
+  s_48a3d075bd0133::t_1337e4510bccf8 14,28,104-105,133,295-297,308-323,344,365
+app/api/records/[id]/correction/route.ts
+  s_48a3d075bd0133::t_aaba39a879b320 1-20
+app/api/circles/[id]/join/route.ts
+  s_48a3d075bd0133::t_bac9c11279e888 14,16-18
+app/globals.css
+  s_48a3d075bd0133::t_9f6ed3c0ee01d4 471-491
+app/types.ts
+  s_48a3d075bd0133::t_e3e2b781486d60 91-98,102,114-124
+app/page.tsx
+  s_48a3d075bd0133::t_28b4662c5e26c6 716-718,723-731,759-760,766,770-776
+  s_48a3d075bd0133::t_6578501fde73cb 28-29,35,70-73,81,86-92,94,274,892-896
+  s_48a3d075bd0133::t_9f6ed3c0ee01d4 353,506,516-517
+  s_48a3d075bd0133::t_df3433d5d29210 4,224-233,237,240,379,814,816
+app/api/circles/[id]/requests/[memberId]/route.ts
+  s_48a3d075bd0133::t_784a569505ec2a 1-25
+README.md
+  s_48a3d075bd0133::t_7cfc038b1263a1 30,35,50-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "7caa0f12356a96f2dff07908d901f4e223968a2f",
+  "prompts": {},
+  "sessions": {
+    "s_48a3d075bd0133": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb01a44c-eda1-4b04-97da-246e51ecce9e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
