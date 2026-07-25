@@ -11,6 +11,7 @@ import type {
   Color,
   DiscoverableCircle,
   GoodCard,
+  JoinRequest,
   Listing,
   Member,
   Transaction,
@@ -24,6 +25,7 @@ export type AppDatabase = {
   goodCards: GoodCard[];
   transactions: Transaction[];
   activity: Array<{ id: number; source: "listing" | "card" | "transaction"; sourceId: string }>;
+  joinRequests: JoinRequest[];
   settings: { publicCards: boolean; publicListings: boolean; keepHiddenPrivate: boolean };
   session: { authenticated: boolean };
   currentMemberId: string;
@@ -99,6 +101,8 @@ export type LoopBootstrap = {
     visibility: string;
     status: string;
     tags: string[];
+    pending_correction: { amount: number; title?: string; story?: string; proposed_by_id: string } | null;
+    redacted?: boolean;
     happened_at: string | null;
     recorded_at: string;
   }[];
@@ -126,6 +130,7 @@ export type LoopBootstrap = {
     visibility: string;
     created_at: string;
   }[];
+  join_requests?: { circle_id: string; account: LoopAccount; note: string | null; requested_at: string }[];
 };
 
 // ─── presentation-only derivations ──────────────────────────────────────────
@@ -287,8 +292,9 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
   const transactions: Transaction[] = loop.records.map((r) => ({
     id: r.id,
     circleId: r.circle_id,
-    providerId: r.provider_id,
-    receiverId: r.receiver_id,
+    // A redacted mystery record arrives with its parties nulled out.
+    providerId: r.provider_id ?? "",
+    receiverId: r.receiver_id ?? "",
     amount: r.amount,
     title: r.title || "",
     story: r.story || "",
@@ -299,6 +305,22 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
       : "public") as Transaction["visibility"],
     status: r.status as Transaction["status"],
     tags: r.tags,
+    pendingCorrection: r.pending_correction
+      ? {
+          amount: r.pending_correction.amount,
+          title: r.pending_correction.title,
+          story: r.pending_correction.story,
+          proposedById: r.pending_correction.proposed_by_id,
+        }
+      : null,
+    redacted: r.redacted === true,
+  }));
+
+  const joinRequests: JoinRequest[] = (loop.join_requests ?? []).map((r) => ({
+    circleId: r.circle_id,
+    member: toMember(r.account),
+    note: r.note || "",
+    requestedAt: formatDate(r.requested_at),
   }));
 
   // Unified, recency-sorted activity feed the UI builds posts from. (loop has
@@ -319,6 +341,7 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     goodCards,
     transactions,
     activity,
+    joinRequests,
     settings: {
       publicCards: loop.settings.public_cards,
       publicListings: loop.settings.public_listings,
@@ -339,6 +362,7 @@ export function anonymousDatabase(): AppDatabase {
     goodCards: [],
     transactions: [],
     activity: [],
+    joinRequests: [],
     settings: { publicCards: true, publicListings: true, keepHiddenPrivate: true },
     session: { authenticated: false },
     currentMemberId: "",

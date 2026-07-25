@@ -79,8 +79,20 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /允许拒绝 \/ 更正/);
   assert.match(page, /CircleSettingsSheet/);
   assert.match(page, /EditProfileSheet/);
+  // Corrections are proposed, then resolved by the other party.
+  assert.match(page, /提议更正/);
+  assert.match(page, /resolveCorrection/);
+  // The owner's approval queue.
+  assert.match(page, /在等你放行/);
+  assert.match(page, /resolveRequest/);
+  // A listing can span several circles, so posts filter on all of them.
+  assert.match(page, /post\.circleIds\.includes/);
+  // Mystery records arrive already redacted; the client trusts that flag.
+  assert.match(page, /transaction\.redacted/);
   assert.match(types, /CircleSettings/);
   assert.match(types, /references/);
+  assert.match(types, /PendingCorrection/);
+  assert.match(types, /JoinRequest/);
   // No seeded demo identities remain.
   assert.doesNotMatch(page, /"qiao"|"ashu"|"village"|"human"/);
   // Neo-brutalism: hard shadows and heavy borders.

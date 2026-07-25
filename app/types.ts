@@ -88,9 +88,18 @@ export type GoodCard = {
   circleId: string;
 };
 
+/** A correction one party proposed and the other has not yet resolved. */
+export type PendingCorrection = {
+  amount: number;
+  title?: string;
+  story?: string;
+  proposedById: string;
+};
+
 export type Transaction = {
   id: string;
   circleId: string;
+  /** empty on a redacted 神秘记录 — the server withholds the identities */
   providerId: string;
   receiverId: string;
   amount: number;
@@ -102,6 +111,17 @@ export type Transaction = {
   /** `pending` only occurs in circles with `requireConfirmation` on */
   status: "pending" | "confirmed" | "corrected" | "rejected";
   tags: string[];
+  pendingCorrection: PendingCorrection | null;
+  /** true when the server stripped the parties and story before sending it */
+  redacted: boolean;
+};
+
+/** Someone waiting for the owner of a circle to let them in. */
+export type JoinRequest = {
+  circleId: string;
+  member: Member;
+  note: string;
+  requestedAt: string;
 };
 
 /** A circle the signed-in user is *not* in yet (from `GET /api/circles`). */

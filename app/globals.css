@@ -468,3 +468,24 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 @media (max-width: 900px) {
   .reference-editor-list > div { grid-template-columns: 1fr; }
 }
+
+/* A correction one party proposed and the other has yet to resolve. */
+.correction-note { margin-top: 10px; border: 2px dashed var(--ink); border-radius: 13px; background: var(--paper); padding: 10px 12px; display: grid; gap: 6px; }
+.correction-note b { font-size: 11px; }
+.correction-note span { color: var(--muted); font-size: 9px; font-weight: 730; line-height: 1.45; }
+.correction-note > div { display: flex; gap: 7px; }
+.correction-note button { min-height: 30px; border: 2px solid var(--ink); border-radius: 999px; background: var(--paper-strong); padding: 4px 13px; font-size: 10px; font-weight: 850; }
+
+/* The owner's approval queue. */
+.pending-banner { width: 100%; margin: 4px 0 14px; border: 3px solid var(--ink); border-radius: 16px; background: var(--pink, var(--paper-strong)); box-shadow: 3px 4px 0 var(--ink); padding: 12px 14px; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; text-align: left; }
+.pending-banner b { font-size: 12px; }
+.pending-banner span { grid-column: 1; color: var(--ink); font-size: 9px; font-weight: 730; opacity: .75; }
+.pending-banner strong { grid-row: 1/3; font-size: 10px; }
+.request-list { display: grid; gap: 9px; margin-bottom: 16px; }
+.request-list article { border: 3px solid var(--ink); border-radius: 16px; background: var(--paper-strong); box-shadow: 3px 4px 0 var(--ink); padding: 12px; display: grid; grid-template-columns: auto 1fr; gap: 11px; align-items: start; }
+.request-list article > div:first-of-type { display: grid; gap: 3px; }
+.request-list b { font-size: 12px; }
+.request-list small { color: var(--muted); font-size: 8px; font-weight: 730; }
+.request-list p { font-size: 10px; font-weight: 730; line-height: 1.5; }
+.request-actions { grid-column: 1/-1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.request-actions button { min-height: 36px; padding: 6px 12px; font-size: 11px; }

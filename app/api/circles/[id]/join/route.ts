@@ -11,8 +11,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!token) return Response.json({ error: "未登录" }, { status: 401 });
 
     const res = await call(`/circles/${id}/join`, { method: "POST", body: JSON.stringify({ note }) });
-    const data = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    const data = (await res.json().catch(() => ({}))) as { status?: string; error?: { message?: string } };
     if (!res.ok) return Response.json({ error: data.error?.message || "加入失败" }, { status: res.status });
-    return Response.json({ ok: true });
+    // loop decides whether this landed active or pending — relay its answer
+    // rather than re-deriving it from the circle's joining mode.
+    return Response.json({ ok: true, status: data.status ?? "active" });
   });
 }
