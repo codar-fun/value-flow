@@ -18,3 +18,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return Response.json({ ok: true, status: data.status ?? "active" });
   });
 }
+
+// DELETE /api/circles/:id/join — withdraw an application the owner hasn't
+// answered yet. Without this an applicant can only wait.
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+
+  return withLoop(request, async (token, call) => {
+    if (!token) return Response.json({ error: "未登录" }, { status: 401 });
+
+    const res = await call(`/circles/${id}/join`, { method: "DELETE" });
+    const data = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    if (!res.ok) return Response.json({ error: data.error?.message || "撤回失败" }, { status: res.status });
+    return Response.json({ ok: true });
+  });
+}

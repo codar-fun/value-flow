@@ -1,18 +1,23 @@
+# flow-circle —— 2026-08-02 从 sg.sola.day 迁到 homepod。
+# 目录名是 community-currency，服务名是 flow-circle，注意别对错。
+# 镜像仓库从 ghcr.io 换成自建的 yatch（home-registry.sola.day）。
+
 service: flow-circle
-image: ghcr.io/jiangplus/flow-circle
+image: home-registry.sola.day/sola/flow-circle
 
 runner: nomad
 egress: traefik
 
 servers:
   web:
-    hosts: [sg.sola.day]
+    hosts: [homepod.sola.day]
     primary: true
 
+# 自建 registry（yatch）。2026-08-02 起不再经 ghcr。
 registry:
-  server: ghcr.io
-  username: jiangplus
-  password: GHCR_TOKEN
+  server: home-registry.sola.day
+  username: sola
+  password: YATCH_TOKEN
 
 proxy:
   hosts: [flow.sola.day]
@@ -21,28 +26,27 @@ proxy:
   health_check_path: /api/health
 
 ssh:
-  user: root
+  user: ubuntu                # homepod 上 ubuntu 在 docker 组，且能直接调 Nomad
 
 # Build natively on the amd64 target host (avoids slow QEMU cross-builds).
 builder:
   arch: amd64
-  remote: ssh://root@sg.sola.day
+  remote: ssh://ubuntu@homepod
 
 env:
   PORT: "3000"
   # The frontend proxies loop-backend server-side; this is the default anyway.
   LOOP_API_BASE: https://loop-api.sola.day/api
 
-# Memory over-provisioning: tiny reservation for bin-packing, burst via
-# memory_max (Node/vinext needs more headroom than the static loop-app).
+# homepod 没有开 Nomad 内存超售（memory_oversubscription = false），
+# memory_max 不会生效，所以直接按实际需要预留。
 resources:
   cpu: 100
-  memory: 12
-  memory_max: 512
+  memory: 512
 
 retain_containers: 5
 
 secrets:
   load: [.env.production]
   inject:
-    - GHCR_TOKEN
+    - YATCH_TOKEN

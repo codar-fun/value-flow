@@ -93,6 +93,40 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(types, /references/);
   assert.match(types, /PendingCorrection/);
   assert.match(types, /JoinRequest/);
+
+  // ── membership has a way out, and applicants can see they're waiting ──
+  // A pending applicant used to get circles:[] and no explanation, while the
+  // discover page kept offering the circle they'd already applied to.
+  assert.match(page, /pendingCircles/);
+  assert.match(page, /withdrawRequest/);
+  assert.match(page, /等圈主放行|等圈主确认/);
+  assert.match(page, /撤回申请/);
+  // Leaving is promised on the invite page; it must exist, and say why not.
+  assert.match(page, /leaveCircle/);
+  assert.match(page, /transferOwner/);
+  assert.match(page, /退出这个圈子/);
+  assert.match(page, /转让圈主/);
+  // Notifications: loop writes them, the client renders the copy.
+  assert.match(page, /NotificationsSheet/);
+  assert.match(page, /markNotificationsRead/);
+  assert.match(types, /Notification/);
+
+  // ── regression guards for bugs found walking the live site ──
+  // The feed is derived from `db`; leaving it out of the deps froze the feed
+  // after every mutation while the toast claimed success.
+  assert.match(page, /\}\), \[db, feedFilter, feedCircleId\]\)/);
+  assert.match(page, /\}\), \[db, discoverFilter\]\)/);
+  // An unresolved id must not borrow a real person's name.
+  assert.match(page, /UNKNOWN_MEMBER/);
+  assert.doesNotMatch(page, /members\.find\(\(member\) => member\.id === id\) \?\? members\[0\]/);
+  // Post ids survive a refetch (the activity array is re-indexed each load).
+  assert.match(page, /const postId = `\$\{activity\.source\}:\$\{activity\.sourceId\}`/);
+  // Only the counterparty may confirm — loop 403s the record's own creator.
+  assert.match(page, /transaction\.createdById !== activeDb\.currentMemberId/);
+  // Paused/closed listings leave the feed.
+  assert.match(page, /listing\.status !== "active"/);
+  // A backend outage is not a logout.
+  assert.match(page, /loadFailed/);
   // No seeded demo identities remain.
   assert.doesNotMatch(page, /"qiao"|"ashu"|"village"|"human"/);
   // Neo-brutalism: hard shadows and heavy borders.

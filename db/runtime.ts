@@ -14,6 +14,7 @@ import type {
   JoinRequest,
   Listing,
   Member,
+  Notification,
   Transaction,
 } from "../app/types";
 
@@ -26,6 +27,10 @@ export type AppDatabase = {
   transactions: Transaction[];
   activity: Array<{ id: number; source: "listing" | "card" | "transaction"; sourceId: string }>;
   joinRequests: JoinRequest[];
+  /** circles I've applied to and am still waiting on */
+  pendingCircles: DiscoverableCircle[];
+  notifications: Notification[];
+  unreadNotifications: number;
   settings: { publicCards: boolean; publicListings: boolean; keepHiddenPrivate: boolean };
   session: { authenticated: boolean };
   currentMemberId: string;
@@ -79,6 +84,9 @@ export type LoopCircle = {
   settings: LoopSettings;
   owner_id: string | null;
   is_member?: boolean;
+  /** "active" | "pending" | null — distinguishes "applied, waiting" from
+   *  "never joined", which `is_member: false` alone flattens together. */
+  membership_status?: string | null;
   member_count: number;
   member_ids?: string[];
 };
@@ -101,6 +109,7 @@ export type LoopBootstrap = {
     visibility: string;
     status: string;
     tags: string[];
+    created_by_id: string | null;
     pending_correction: { amount: number; title?: string; story?: string; proposed_by_id: string } | null;
     redacted?: boolean;
     happened_at: string | null;
@@ -131,6 +140,21 @@ export type LoopBootstrap = {
     created_at: string;
   }[];
   join_requests?: { circle_id: string; account: LoopAccount; note: string | null; requested_at: string }[];
+  pending_circles?: LoopCircle[];
+  notifications?: LoopNotification[];
+  unread_notifications?: number;
+};
+
+type LoopNotification = {
+  id: string;
+  kind: string;
+  actor_id: string | null;
+  amount: number | null;
+  note: string | null;
+  circle_id: string | null;
+  text: string | null;
+  read: boolean;
+  created_at: string;
 };
 
 // ─── presentation-only derivations ──────────────────────────────────────────
@@ -221,6 +245,7 @@ export function toDiscoverable(c: LoopCircle): DiscoverableCircle {
     members: c.member_count,
     tagline: c.description || "",
     joining: c.joining === "approval" ? "approval" : "direct",
+    pending: c.membership_status === "pending",
   };
 }
 
@@ -295,6 +320,9 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     // A redacted mystery record arrives with its parties nulled out.
     providerId: r.provider_id ?? "",
     receiverId: r.receiver_id ?? "",
+    // Who logged it: only the *other* party may confirm, so the UI needs this
+    // to know whether to offer the button at all.
+    createdById: r.created_by_id ?? "",
     amount: r.amount,
     title: r.title || "",
     story: r.story || "",
@@ -323,6 +351,23 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     requestedAt: formatDate(r.requested_at),
   }));
 
+  const pendingCircles: DiscoverableCircle[] = (loop.pending_circles ?? []).map((c) => ({
+    ...toDiscoverable(c),
+    pending: true,
+  }));
+
+  const notifications: Notification[] = (loop.notifications ?? []).map((n) => ({
+    id: n.id,
+    kind: n.kind,
+    actorId: n.actor_id || "",
+    amount: n.amount,
+    note: n.note || "",
+    circleId: n.circle_id || "",
+    text: n.text || "",
+    read: n.read,
+    createdAt: formatDate(n.created_at),
+  }));
+
   // Unified, recency-sorted activity feed the UI builds posts from. (loop has
   // no `activities` table — the client assembles it from the three sources.)
   const activity = [
@@ -342,6 +387,9 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     transactions,
     activity,
     joinRequests,
+    pendingCircles,
+    notifications,
+    unreadNotifications: loop.unread_notifications ?? 0,
     settings: {
       publicCards: loop.settings.public_cards,
       publicListings: loop.settings.public_listings,
@@ -363,6 +411,9 @@ export function anonymousDatabase(): AppDatabase {
     transactions: [],
     activity: [],
     joinRequests: [],
+    pendingCircles: [],
+    notifications: [],
+    unreadNotifications: 0,
     settings: { publicCards: true, publicListings: true, keepHiddenPrivate: true },
     session: { authenticated: false },
     currentMemberId: "",

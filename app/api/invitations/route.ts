@@ -6,7 +6,12 @@ export async function POST(request: Request) {
   const { circleId } = (await request.json().catch(() => ({}))) as { circleId?: string };
   if (!circleId) return Response.json({ error: "缺少圈子。" }, { status: 400 });
 
-  const origin = new URL(request.url).origin;
+  // TLS terminates at the proxy, so `request.url` is http:// internally —
+  // building the share link from it would hand people an insecure URL.
+  const url = new URL(request.url);
+  const proto = request.headers.get("x-forwarded-proto")?.split(",")[0].trim();
+  const host = request.headers.get("x-forwarded-host") || url.host;
+  const origin = `${proto || url.protocol.replace(":", "")}://${host}`;
 
   return withLoop(request, async (token, call) => {
     if (!token) return Response.json({ error: "未登录" }, { status: 401 });

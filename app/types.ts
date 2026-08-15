@@ -111,6 +111,8 @@ export type Transaction = {
   /** `pending` only occurs in circles with `requireConfirmation` on */
   status: "pending" | "confirmed" | "corrected" | "rejected";
   tags: string[];
+  /** who logged it — only the other party may confirm a pending record */
+  createdById: string;
   pendingCorrection: PendingCorrection | null;
   /** true when the server stripped the parties and story before sending it */
   redacted: boolean;
@@ -134,4 +136,20 @@ export type DiscoverableCircle = {
   members: number;
   tagline: string;
   joining: "direct" | "approval";
+  /** I've applied and am waiting on the owner — not joinable again. */
+  pending?: boolean;
+};
+
+/** An activity notice from loop-backend. The copy is rendered client-side;
+ *  loop stores only these structured fields, never display strings. */
+export type Notification = {
+  id: string;
+  kind: string;
+  actorId: string;
+  amount: number | null;
+  note: string;
+  circleId: string;
+  text: string;
+  read: boolean;
+  createdAt: string;
 };

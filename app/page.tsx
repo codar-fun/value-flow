@@ -10,10 +10,11 @@ type ComposerType = "record" | "need" | "offer" | "card";
 type FeedFilter = "all" | "trade" | "need" | "offer" | "card";
 type DiscoverFilter = "all" | "need" | "offer" | "circles";
 type ProfileTab = "cards" | "listings" | "transactions";
-type Overlay = "share" | "profile" | "rules" | "members" | "invite" | "feedFilter" | "post" | "settings" | "circleSettings" | "editProfile" | null;
+type Overlay = "share" | "profile" | "rules" | "members" | "invite" | "feedFilter" | "post" | "settings" | "circleSettings" | "editProfile" | "notifications" | null;
 
 type Post = {
-  id: number;
+  /** stable across refetches: "<source>:<sourceId>", never the array index */
+  id: string;
   kind: "offer" | "need" | "trade" | "mystery" | "card";
   badge: string;
   person: string;
@@ -32,7 +33,7 @@ type Post = {
 };
 
 // Empty world until the loop-backend session loads — no demo/default user.
-const initialDb: AppDatabase = { members: [], circles: [], accounts: [], listings: [], goodCards: [], transactions: [], activity: [], joinRequests: [], settings: { publicCards: true, publicListings: true, keepHiddenPrivate: true }, session: { authenticated: false }, currentMemberId: "" };
+const initialDb: AppDatabase = { members: [], circles: [], accounts: [], listings: [], goodCards: [], transactions: [], activity: [], joinRequests: [], pendingCircles: [], notifications: [], unreadNotifications: 0, settings: { publicCards: true, publicListings: true, keepHiddenPrivate: true }, session: { authenticated: false }, currentMemberId: "" };
 const EMPTY_SETTINGS: Circle["settings"] = { allowNegativeBalance: false, requireConfirmation: false, allowRejectCorrect: false, references: [], rules: [] };
 const EMPTY_CIRCLE: Circle = { id: "", name: "", short: "•", color: "green", currency: "积分", members: 0, tagline: "", joining: "direct", settings: EMPTY_SETTINGS, ownerId: "", isMember: false, memberIds: [] };
 let activeDb = initialDb;
@@ -49,12 +50,17 @@ function variantFor(seed: string): AvatarVariant {
   return AVATAR_VARIANTS[h % AVATAR_VARIANTS.length];
 }
 
+// A stand-in for an id we can't resolve. Falling back to `members[0]` used to
+// put a real person's name (usually the signed-in user's) on someone else's
+// record — silently wrong is worse than visibly unknown.
+const UNKNOWN_MEMBER: Member = { id: "", name: "未知成员", initial: "•", handle: "", color: "blue", avatar: "crop", bio: "", wechat: "", address: "", circleIds: [] };
+
 function memberById(id?: string) {
-  return members.find((member) => member.id === id) ?? members[0];
+  return members.find((member) => member.id === id) ?? UNKNOWN_MEMBER;
 }
 
-function circleById(id?: string) {
-  return circles.find((circle) => circle.id === id) ?? circles[0];
+function circleById(id?: string): Circle | undefined {
+  return circles.find((circle) => circle.id === id);
 }
 
 function accountFor(memberId: string, circleId: string) {
@@ -64,13 +70,16 @@ function accountFor(memberId: string, circleId: string) {
 function buildPosts(): Post[] {
   const result: Post[] = [];
   for (const activity of activeDb.activity) {
+    const postId = `${activity.source}:${activity.sourceId}`;
     if (activity.source === "listing") {
       const listing = activeDb.listings.find((item) => item.id === activity.sourceId);
       const member = activeDb.members.find((item) => item.id === listing?.memberId);
-      if (!listing || !member) continue;
+      // Paused/closed listings stay in the author's own archive but must leave
+      // the feed — otherwise people keep answering a withdrawn offer.
+      if (!listing || !member || listing.status !== "active") continue;
       const names = listing.circleIds.map((id) => circleById(id)?.name).filter(Boolean);
       const scope = listing.visibility === "cross-circle" ? "跨圈公开" : names.join("、");
-      result.push({ id: activity.id, kind: listing.type, badge: listing.type === "need" ? "我想要" : "我可以给", person: member.name, caption: member.handle, memberId: member.id, avatar: member.initial, avatarVariant: member.avatar, color: listing.type === "need" ? "pink" : "green", text: listing.detail || listing.title, meta: [scope, listing.location].filter(Boolean).join(" · "), chips: listing.tags, circleIds: listing.circleIds, source: activity.source, sourceId: listing.id });
+      result.push({ id: postId, kind: listing.type, badge: listing.type === "need" ? "我想要" : "我可以给", person: member.name, caption: member.handle, memberId: member.id, avatar: member.initial, avatarVariant: member.avatar, color: listing.type === "need" ? "pink" : "green", text: listing.detail || listing.title, meta: [scope, listing.location].filter(Boolean).join(" · "), chips: listing.tags, circleIds: listing.circleIds, source: activity.source, sourceId: listing.id });
       continue;
     }
     if (activity.source === "card") {
@@ -78,7 +87,7 @@ function buildPosts(): Post[] {
       const from = activeDb.members.find((item) => item.id === card?.fromMemberId);
       const to = activeDb.members.find((item) => item.id === card?.toMemberId);
       if (!card || !from || !to) continue;
-      result.push({ id: activity.id, kind: "card", badge: "好人卡", person: `${from.name} → ${to.name}`, caption: card.visibility === "cross-circle" ? "跨圈公开" : "已隐藏", memberId: to.id, avatar: to.initial, avatarVariant: to.avatar, color: "coral", text: card.story, meta: `${card.date} · 被好好看见`, chips: [], circleIds: card.circleId ? [card.circleId] : [], source: activity.source, sourceId: card.id });
+      result.push({ id: postId, kind: "card", badge: "好人卡", person: `${from.name} → ${to.name}`, caption: card.visibility === "cross-circle" ? "跨圈公开" : "已隐藏", memberId: to.id, avatar: to.initial, avatarVariant: to.avatar, color: "coral", text: card.story, meta: `${card.date} · 被好好看见`, chips: [], circleIds: card.circleId ? [card.circleId] : [], source: activity.source, sourceId: card.id });
       continue;
     }
     const transaction = activeDb.transactions.find((item) => item.id === activity.sourceId);
@@ -91,7 +100,7 @@ function buildPosts(): Post[] {
     const receiver = activeDb.members.find((item) => item.id === transaction.receiverId);
     if (!hidden && (!provider || !receiver)) continue;
     const pending = transaction.status === "pending";
-    result.push({ id: activity.id, kind: hidden ? "mystery" : "trade", badge: hidden ? "神秘记录" : pending ? "待确认" : "互助完成", person: hidden ? "圈里发生了一次互助" : `${provider!.name} → ${receiver!.name}`, caption: hidden ? "身份与故事已隐藏" : pending ? "等待另一方确认" : transaction.visibility === "private" ? "仅当事人" : transaction.visibility === "mystery" ? "神秘记录 · 只有你们看得到" : "圈内公开", memberId: hidden ? undefined : provider!.id, avatar: hidden ? "?" : provider!.initial, avatarVariant: hidden ? "crop" : provider!.avatar, color: hidden ? "blue" : "yellow", text: hidden ? "参与者和故事选择了隐藏。" : transaction.story || transaction.title, meta: `${circle.name} · ${transaction.amount} ${circle.currency}`, chips: transaction.tags, circleIds: [circle.id], source: activity.source, sourceId: transaction.id });
+    result.push({ id: postId, kind: hidden ? "mystery" : "trade", badge: hidden ? "神秘记录" : pending ? "待确认" : "互助完成", person: hidden ? "圈里发生了一次互助" : `${provider!.name} → ${receiver!.name}`, caption: hidden ? "身份与故事已隐藏" : pending ? "等待另一方确认" : transaction.visibility === "private" ? "仅当事人" : transaction.visibility === "mystery" ? "神秘记录 · 只有你们看得到" : "圈内公开", memberId: hidden ? undefined : provider!.id, avatar: hidden ? "?" : provider!.initial, avatarVariant: hidden ? "crop" : provider!.avatar, color: hidden ? "blue" : "yellow", text: hidden ? "参与者和故事选择了隐藏。" : transaction.story || transaction.title, meta: `${circle.name} · ${transaction.amount} ${circle.currency}`, chips: transaction.tags, circleIds: [circle.id], source: activity.source, sourceId: transaction.id });
   }
   return result;
 }
@@ -197,11 +206,14 @@ export default function Home() {
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [selectedMemberId, setSelectedMemberId] = useState("");
   const [profileTab, setProfileTab] = useState<ProfileTab>("cards");
-  const [selectedPostId, setSelectedPostId] = useState(0);
+  const [selectedPostId, setSelectedPostId] = useState("");
   const [feedFilter, setFeedFilter] = useState<FeedFilter>("all");
   const [discoverFilter, setDiscoverFilter] = useState<DiscoverFilter>("all");
   const [openCircles, setOpenCircles] = useState<DiscoverableCircle[]>([]);
   const [toast, setToast] = useState("");
+  // A failed bootstrap used to fall through to the login gate, so a 502 looked
+  // exactly like being signed out and asked people to re-enter an OTP.
+  const [loadFailed, setLoadFailed] = useState(false);
 
   activeDb = db; members = db.members; circles = db.circles; posts = buildPosts();
   const currentMemberId = db.currentMemberId;
@@ -209,7 +221,8 @@ export default function Home() {
   async function refreshData() {
     const response = await fetch("/api/bootstrap", { cache: "no-store" });
     const payload = await response.json() as AppDatabase & { error?: string };
-    if (!response.ok) throw new Error(payload.error || "数据加载失败");
+    if (!response.ok) { setLoadFailed(true); throw new Error(payload.error || "数据加载失败"); }
+    setLoadFailed(false);
     setDb(payload);
     loadOpenCircles();
   }
@@ -232,6 +245,7 @@ export default function Home() {
   }
 
   async function joinCircle(circle: DiscoverableCircle) {
+    if (circle.pending) return withdrawRequest(circle);
     try {
       const response = await fetch(`/api/circles/${circle.id}/join`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
       const result = await response.json() as { status?: string; error?: string };
@@ -239,6 +253,48 @@ export default function Home() {
       await refreshData();
       flash(result.status === "pending" ? `已申请加入${circle.name}，等待圈主确认` : `已加入${circle.name}`);
     } catch (error) { flash(error instanceof Error ? error.message : "加入失败"); }
+  }
+
+  async function withdrawRequest(circle: DiscoverableCircle) {
+    try {
+      const response = await fetch(`/api/circles/${circle.id}/join`, { method: "DELETE" });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "撤回失败");
+      await refreshData();
+      flash(`已撤回加入${circle.name}的申请`);
+    } catch (error) { flash(error instanceof Error ? error.message : "撤回失败"); }
+  }
+
+  async function leaveCircle(circle: Circle) {
+    if (!window.confirm(`确定退出${circle.name}吗？你过去的记录会留在圈子里，额度归零。`)) return;
+    try {
+      const response = await fetch(`/api/circles/${circle.id}/leave`, { method: "DELETE" });
+      const result = await response.json() as { status?: string; error?: string };
+      // loop refuses with a reason (还欠着额度 / 要先转让圈主) — show it as-is.
+      if (!response.ok) throw new Error(result.error || "退出失败");
+      setOverlay(null); showAllCircles();
+      await refreshData();
+      flash(result.status === "archived" ? `已退出，${circle.name}没有成员了，已归档` : `已退出${circle.name}`);
+    } catch (error) { flash(error instanceof Error ? error.message : "退出失败"); }
+  }
+
+  async function transferOwner(circle: Circle, memberId: string) {
+    const target = memberById(memberId);
+    if (!window.confirm(`把${circle.name}的圈主转让给 ${target.name}？转让后审批和设置由对方负责，你仍然是成员。`)) return;
+    try {
+      const response = await fetch(`/api/circles/${circle.id}/owner`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ memberId }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "转让失败");
+      await refreshData();
+      flash(`已把圈主转让给 ${target.name}`);
+    } catch (error) { flash(error instanceof Error ? error.message : "转让失败"); }
+  }
+
+  async function markNotificationsRead() {
+    try {
+      await fetch("/api/notifications/read", { method: "POST" });
+      await refreshData();
+    } catch { /* the badge simply stays until the next load */ }
   }
 
   async function logout() {
@@ -249,7 +305,7 @@ export default function Home() {
 
   useEffect(() => {
     let active=true;
-    fetch("/api/bootstrap",{cache:"no-store"}).then(async (response)=>{const payload=await response.json() as AppDatabase&{error?:string};if(!response.ok)throw new Error(payload.error||"数据加载失败");if(active){setDb(payload);loadOpenCircles();}}).catch((error)=>{if(active)flash(error instanceof Error?error.message:"暂时无法连接数据服务");}).finally(()=>{if(active)setLoaded(true);});
+    fetch("/api/bootstrap",{cache:"no-store"}).then(async (response)=>{const payload=await response.json() as AppDatabase&{error?:string};if(!response.ok)throw new Error(payload.error||"数据加载失败");if(active){setDb(payload);loadOpenCircles();}}).catch((error)=>{if(active){setLoadFailed(true);flash(error instanceof Error?error.message:"暂时无法连接数据服务");}}).finally(()=>{if(active)setLoaded(true);});
     return()=>{active=false;};
   }, []);
 
@@ -275,12 +331,12 @@ export default function Home() {
     if (feedFilter === "all") return true;
     if (feedFilter === "trade") return post.kind === "trade" || post.kind === "mystery";
     return post.kind === feedFilter;
-  }), [feedFilter, feedCircleId]);
+  }), [db, feedFilter, feedCircleId]);
   const discoverPosts = useMemo(() => posts.filter((post) => {
     if (post.kind !== "need" && post.kind !== "offer") return false;
     if (discoverFilter === "all" || discoverFilter === "circles") return true;
     return post.kind === discoverFilter;
-  }), [discoverFilter]);
+  }), [db, discoverFilter]);
 
   function flash(message: string) {
     setToast(message);
@@ -289,7 +345,10 @@ export default function Home() {
 
   // Auth gate: wait for the first bootstrap, then require a loop-backend session.
   if (!loaded) return <main className="world-shell login-splash"><p>正在连接流动圈…</p></main>;
-  if (!db.session.authenticated) return <LoginGate onDone={async () => { setLoaded(false); await refreshData(); setLoaded(true); }}/>;
+  if (!db.session.authenticated) {
+    if (loadFailed) return <main className="world-shell login-splash"><div><p>连不上流动圈的数据服务。你没有被登出，稍后再试一次就好。</p><button className="primary-button" onClick={() => { setLoaded(false); refreshData().catch(() => {}).finally(() => setLoaded(true)); }}>重试</button></div></main>;
+    return <LoginGate onDone={async () => { setLoaded(false); try { await refreshData(); } finally { setLoaded(true); } }}/>;
+  }
 
   function openComposer(nextIntent: ComposerType = "record") {
     setIntent(nextIntent); setComposer(true);
@@ -312,7 +371,7 @@ export default function Home() {
     setSelectedMemberId(id); setProfileTab(tab); setOverlay("profile");
   }
 
-  function openPost(id: number) {
+  function openPost(id: string) {
     setSelectedPostId(id); setOverlay("post");
   }
 
@@ -325,7 +384,7 @@ export default function Home() {
   }
 
   if (circles.length === 0 && view !== "create") {
-    return <AccountStartView member={memberById(currentMemberId)} openCircles={openCircles} onSaved={refreshData} onJoin={joinCircle} onCreate={openCreateCircle} onLogout={logout}/>;
+    return <AccountStartView member={memberById(currentMemberId)} openCircles={openCircles} pendingCircles={db.pendingCircles} onSaved={refreshData} onJoin={joinCircle} onWithdraw={withdrawRequest} onCreate={openCreateCircle} onLogout={logout}/>;
   }
 
   return <main className="world-shell">
@@ -340,7 +399,7 @@ export default function Home() {
 
     <section className="phone-stage">
       <div className={`app-frame ${view === "about" || view === "create" ? "about-open" : ""}`}>
-        <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流</span><i/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : view === "create" ? "NEW CIRCLE · 创建向导" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : view === "create" ? "创建新圈子" : `你好，${memberById(currentMemberId).name}！`}</h1></div><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById(currentMemberId)}/></button></header>
+        <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><span>流</span><i/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : view === "create" ? "NEW CIRCLE · 创建向导" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : view === "create" ? "创建新圈子" : `你好，${memberById(currentMemberId).name}！`}</h1></div><button className="bell-button" onClick={() => { setOverlay("notifications"); if (db.unreadNotifications > 0) markNotificationsRead(); }} aria-label={`通知${db.unreadNotifications > 0 ? `，${db.unreadNotifications} 条未读` : ""}`}><span>🔔</span>{db.unreadNotifications > 0 && <i>{db.unreadNotifications > 9 ? "9+" : db.unreadNotifications}</i>}</button><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById(currentMemberId)}/></button></header>
         {view !== "about" && view !== "create" && <nav className="circle-switcher" aria-label="切换动态范围"><button className={`all-switch ${feedCircleId === "all" && view === "feed" ? "selected" : ""}`} onClick={showAllCircles}><span className="circle-dot dot-all"/><span>全部圈子</span><b>{posts.length}</b></button>{circles.filter((item) => memberById(currentMemberId).circleIds.includes(item.id)).map((item) => { const account = accountFor(currentMemberId, item.id); return <button key={item.id} className={feedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><span className={`circle-dot dot-${item.color}`}/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>}
         <div className="view-content">
           {view === "about" && <AboutView onExplore={showAllCircles} onCreate={openCreateCircle} onCircle={(id) => selectCircle(id, "circle")}/>}
@@ -376,10 +435,11 @@ export default function Home() {
     }}/>} 
     {overlay === "profile" && selectedMember && <ProfileSheet member={selectedMember} activeCircleId={circleId} initialTab={profileTab} onClose={() => setOverlay(null)} onNotice={flash} onChanged={refreshData}/>} 
     {overlay === "rules" && <RulesSheet circle={activeCircle} onClose={() => setOverlay(null)}/>}
-    {overlay === "members" && <MembersSheet circle={activeCircle} requests={db.joinRequests.filter((r) => r.circleId === activeCircle.id)} onProfile={openProfile} onInvite={() => setOverlay("invite")} onClose={() => setOverlay(null)} onResolve={resolveRequest}/>}
+    {overlay === "members" && <MembersSheet circle={activeCircle} requests={db.joinRequests.filter((r) => r.circleId === activeCircle.id)} isOwner={isCircleOwner} onProfile={openProfile} onInvite={() => setOverlay("invite")} onClose={() => setOverlay(null)} onResolve={resolveRequest} onLeave={leaveCircle} onTransfer={transferOwner}/>}
     {overlay === "invite" && <InviteSheet circle={activeCircle} onClose={() => setOverlay(null)} onNotice={flash}/>}
     {overlay === "feedFilter" && <FeedFilterSheet active={feedFilter} onSelect={(next) => { setFeedFilter(next); setOverlay(null); }} onClose={() => setOverlay(null)}/>}
     {overlay === "post" && selectedPost && <PostSheet post={selectedPost} onProfile={() => selectedPost.memberId && openProfile(selectedPost.memberId)} onShare={() => setOverlay("share")} onClose={() => setOverlay(null)}/>}
+    {overlay === "notifications" && <NotificationsSheet notifications={db.notifications} onClose={() => setOverlay(null)}/>}
     {overlay === "settings" && <SettingsSheet settings={db.settings} onClose={() => setOverlay(null)} onSaved={async () => { await refreshData(); flash("公开设置已经保存"); }}/>} 
     {overlay === "circleSettings" && <CircleSettingsSheet circle={activeCircle} onClose={() => setOverlay(null)} onSaved={refreshData} onNotice={flash}/>}
     {overlay === "editProfile" && <EditProfileSheet member={memberById(currentMemberId)} onClose={() => setOverlay(null)} onSaved={refreshData} onNotice={flash}/>}
@@ -389,13 +449,14 @@ export default function Home() {
 
 // Shown while the signed-in user belongs to no circle yet: fill in the profile,
 // then either create a circle or join an open one.
-function AccountStartView({ member, openCircles, onSaved, onJoin, onCreate, onLogout }: { member: Member; openCircles: DiscoverableCircle[]; onSaved: () => Promise<void>; onJoin: (circle: DiscoverableCircle) => Promise<void>; onCreate: () => void; onLogout: () => void }) {
+function AccountStartView({ member, openCircles, pendingCircles, onSaved, onJoin, onWithdraw, onCreate, onLogout }: { member: Member; openCircles: DiscoverableCircle[]; pendingCircles: DiscoverableCircle[]; onSaved: () => Promise<void>; onJoin: (circle: DiscoverableCircle) => Promise<void>; onWithdraw: (circle: DiscoverableCircle) => Promise<void>; onCreate: () => void; onLogout: () => void }) {
   const [name,setName]=useState(member.name);
   const [bio,setBio]=useState(member.bio);
   const [wechat,setWechat]=useState(member.wechat);
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState("");
   const [saved,setSaved]=useState(false);
+  const joinable = openCircles.filter((circle) => !circle.pending);
 
   async function saveProfile() {
     try {
@@ -425,11 +486,17 @@ function AccountStartView({ member, openCircles, onSaved, onJoin, onCreate, onLo
     {error&&<p className="account-error">{error}</p>}
     <button className="primary-button" disabled={saving} onClick={saveProfile}>{saving?"正在保存…":saved?"已保存 ✓":"保存档案"}</button>
     <div className="account-next"><button className="secondary-button" onClick={onCreate}>创建第一个圈子</button></div>
-    {openCircles.length > 0 && <div className="open-circle-list">
-      <b>或者加入一个已经开放的圈子</b>
-      {openCircles.map((circle) => <button key={circle.id} onClick={() => onJoin(circle)}><span className={`camp-flag flag-${circle.color}`}>{circle.short}</span><span><b>{circle.name}</b><small>{circle.currency} · {circle.members} 人 · {circle.joining === "approval" ? "需审批" : "可直接加入"}</small></span><strong>加入 →</strong></button>)}
+    {pendingCircles.length > 0 && <div className="open-circle-list pending-list">
+      <b>正在等待放行</b>
+      {pendingCircles.map((circle) => <button key={circle.id} className="awaiting" onClick={() => onWithdraw(circle)}><span className={`camp-flag flag-${circle.color}`}>{circle.short}</span><span><b>{circle.name}</b><small>已提交申请，等圈主确认</small></span><strong>撤回申请</strong></button>)}
     </div>}
-    <div className="account-boundary"><b>还没有圈子，不是错误。</b><span>加入圈子后，这里才会出现对应的成员、余额和互助记录。</span></div>
+    {joinable.length > 0 && <div className="open-circle-list">
+      <b>或者加入一个已经开放的圈子</b>
+      {joinable.map((circle) => <button key={circle.id} onClick={() => onJoin(circle)}><span className={`camp-flag flag-${circle.color}`}>{circle.short}</span><span><b>{circle.name}</b><small>{circle.currency} · {circle.members} 人 · {circle.joining === "approval" ? "需审批" : "可直接加入"}</small></span><strong>加入 →</strong></button>)}
+    </div>}
+    {pendingCircles.length > 0
+      ? <div className="account-boundary"><b>申请已经送到了。</b><span>圈主放行之后，这里才会出现对应的成员、余额和互助记录。你也可以随时撤回。</span></div>
+      : <div className="account-boundary"><b>还没有圈子，不是错误。</b><span>加入圈子后，这里才会出现对应的成员、余额和互助记录。</span></div>}
     <button className="account-signout" onClick={onLogout}>退出登录，换一个账号</button>
   </section></main>;
 }
@@ -484,7 +551,7 @@ function ComposeHero({ onSpeak }: { onSpeak: (intent?: ComposerType) => void }) 
   return <section className="agent-hero"><div className="hero-decor decor-grid"/><div className="hero-decor decor-square"/><div className="hero-decor decor-circle"/><div className="agent-orb"><i className="agent-antenna"/><span>＋</span><b>记一笔</b></div><div className="agent-copy"><Pill color="cream">FLOW · 社区记忆</Pill><h2>事情发生之后，<br/>留下一层记忆。</h2><p>填几个字段就好，确认之前都可以修改。</p></div><button className="speak-button" onClick={() => onSpeak()}><span>●</span><b>记一笔</b><small>互助 · 需要 · 提供 · 好人卡</small></button></section>;
 }
 
-function FeedView({ activeCircle, activeAccount, isAllCircles, posts: list, filter, onSpeak, onCircle, onMe, onProfile, onShare, onFilter, onPost }: { activeCircle: Circle; activeAccount: ReturnType<typeof accountFor>; isAllCircles: boolean; posts: Post[]; filter: FeedFilter; onSpeak: (intent?: ComposerType) => void; onCircle: () => void; onMe: () => void; onProfile: (id?: string) => void; onShare: () => void; onFilter: () => void; onPost: (id: number) => void }) {
+function FeedView({ activeCircle, activeAccount, isAllCircles, posts: list, filter, onSpeak, onCircle, onMe, onProfile, onShare, onFilter, onPost }: { activeCircle: Circle; activeAccount: ReturnType<typeof accountFor>; isAllCircles: boolean; posts: Post[]; filter: FeedFilter; onSpeak: (intent?: ComposerType) => void; onCircle: () => void; onMe: () => void; onProfile: (id?: string) => void; onShare: () => void; onFilter: () => void; onPost: (id: string) => void }) {
   const labels: Record<FeedFilter,string> = { all: "全部动态", trade: "互助记录", need: "只看需要", offer: "只看提供", card: "好人卡" };
   const myCards = activeDb.goodCards.filter((card) => card.toMemberId === activeDb.currentMemberId && card.visibility === "cross-circle").length;
   const totalGiven = activeDb.accounts.filter((account) => account.memberId === activeDb.currentMemberId).reduce((sum, account) => sum + account.given, 0);
@@ -492,18 +559,18 @@ function FeedView({ activeCircle, activeAccount, isAllCircles, posts: list, filt
   return <><ComposeHero onSpeak={onSpeak}/><section className="scope-banner"><span>{isAllCircles ? "综合动态" : "当前圈子"}</span><b>{scopeTitle}</b><small>{list.length} 条符合当前筛选的动态</small></section><section className="stats-grid" aria-label="当前动态范围概览"><button className="stat-card stat-yellow" onClick={isAllCircles ? onMe : onCircle}><span>{isAllCircles ? "已加入圈子" : "当前额度"}</span><strong>{isAllCircles ? memberById(activeDb.currentMemberId).circleIds.length : `${activeAccount.balance > 0 ? "+" : ""}${activeAccount.balance}`}</strong><small>{isAllCircles ? "每个圈有独立账户" : `${activeCircle.currency} · ${activeCircle.name}`}</small></button><button className="stat-card stat-pink" onClick={onMe}><span>我给出过</span><strong>{isAllCircles ? totalGiven : activeAccount.given}</strong><small>{isAllCircles ? "各圈的社区记忆" : "不是排名，是记忆"}</small></button><button className="stat-card stat-blue" onClick={() => onProfile(activeDb.currentMemberId)}><span>好人卡</span><strong>{myCards}</strong><small>跨圈跟着我</small></button></section><SectionTitle eyebrow="LIVE FROM THE CIRCLE" title={`${scopeTitle} · ${labels[filter]}`} action={`筛选 · ${list.length}`} onAction={onFilter}/><FeedList posts={list} onProfile={onProfile} onShare={onShare} onPost={onPost}/></>;
 }
 
-function DiscoverView({ posts: list, filter, setFilter, openCircles, onJoin, onSpeak, onProfile, onShare, onPost }: { posts: Post[]; filter: DiscoverFilter; setFilter: (filter: DiscoverFilter) => void; openCircles: DiscoverableCircle[]; onJoin: (circle: DiscoverableCircle) => Promise<void>; onSpeak: (intent?: ComposerType) => void; onProfile: (id?: string) => void; onShare: () => void; onPost: (id: number) => void }) {
+function DiscoverView({ posts: list, filter, setFilter, openCircles, onJoin, onSpeak, onProfile, onShare, onPost }: { posts: Post[]; filter: DiscoverFilter; setFilter: (filter: DiscoverFilter) => void; openCircles: DiscoverableCircle[]; onJoin: (circle: DiscoverableCircle) => Promise<void>; onSpeak: (intent?: ComposerType) => void; onProfile: (id?: string) => void; onShare: () => void; onPost: (id: string) => void }) {
   const options: {id: DiscoverFilter; label: string}[] = [{id:"all",label:"全部"},{id:"need",label:"我想要"},{id:"offer",label:"我可以给"},{id:"circles",label:`可加入的圈子 ${openCircles.length}`}];
   return <><section className="page-hero discover-hero"><div><Pill color="pink">跨圈发现</Pill><h2>有人在寻找，<br/>也有人正好可以给。</h2><p>看到“可以提供”，不代表对方必须答应。先问问就好。</p></div><button onClick={() => onSpeak("need")}>＋ 发布</button></section>
     <div className="filter-row" aria-label="发现筛选">{options.map((item) => <button key={item.id} className={filter === item.id ? "active" : ""} onClick={() => setFilter(item.id)}>{item.label}</button>)}</div>
     {filter === "circles"
       ? (openCircles.length === 0
           ? <p className="result-note">目前没有可以直接加入的圈子。圈子大多靠熟人邀请——找一个认识的人要一条邀请链接。</p>
-          : <><p className="result-note">{openCircles.length} 个你还没加入的圈子</p><div className="open-circle-list">{openCircles.map((circle) => <button key={circle.id} onClick={() => onJoin(circle)}><span className={`camp-flag flag-${circle.color}`}>{circle.short}</span><span><b>{circle.name}</b><small>{circle.tagline || `${circle.currency} · ${circle.members} 人`}</small></span><strong>{circle.joining === "approval" ? "申请 →" : "加入 →"}</strong></button>)}</div></>)
+          : <><p className="result-note">{openCircles.length} 个你还没加入的圈子</p><div className="open-circle-list">{openCircles.map((circle) => <button key={circle.id} className={circle.pending ? "awaiting" : ""} onClick={() => onJoin(circle)}><span className={`camp-flag flag-${circle.color}`}>{circle.short}</span><span><b>{circle.name}</b><small>{circle.pending ? "已申请，等圈主放行" : circle.tagline || `${circle.currency} · ${circle.members} 人`}</small></span><strong>{circle.pending ? "撤回申请" : circle.joining === "approval" ? "申请 →" : "加入 →"}</strong></button>)}</div></>)
       : <><p className="result-note">找到 {list.length} 条仍然有效的内容</p><FeedList posts={list} onProfile={onProfile} onShare={onShare} onPost={onPost}/></>}</>;
 }
 
-function CircleView({ circle, account, posts: circlePosts, isOwner, pendingCount, onSpeak, onProfile, onShare, onPost, onRules, onMembers, onInvite, onSettings }: { circle: Circle; account: ReturnType<typeof accountFor>; posts: Post[]; isOwner: boolean; pendingCount: number; onSpeak: (intent?: ComposerType) => void; onProfile: (id?: string) => void; onShare: () => void; onPost: (id: number) => void; onRules: () => void; onMembers: () => void; onInvite: () => void; onSettings: () => void }) {
+function CircleView({ circle, account, posts: circlePosts, isOwner, pendingCount, onSpeak, onProfile, onShare, onPost, onRules, onMembers, onInvite, onSettings }: { circle: Circle; account: ReturnType<typeof accountFor>; posts: Post[]; isOwner: boolean; pendingCount: number; onSpeak: (intent?: ComposerType) => void; onProfile: (id?: string) => void; onShare: () => void; onPost: (id: string) => void; onRules: () => void; onMembers: () => void; onInvite: () => void; onSettings: () => void }) {
   const { references } = circle.settings;
   return <><section className={`page-hero circle-hero hero-${circle.color}`}><div><Pill color="cream">我的营地 · {circle.currency}</Pill><h2>{circle.name}</h2><p>{circle.tagline}</p></div><div className="coin-badge"><span>{account.balance > 0 ? "+" : ""}{account.balance}</span><small>{circle.currency}</small></div></section>
     <div className="circle-actions"><button onClick={() => onSpeak()}>＋ 记一笔</button><button onClick={onInvite}>邀请成员</button><button onClick={onRules}>圈子介绍</button>{isOwner && <button onClick={onSettings}>圈子设置</button>}</div>
@@ -529,7 +596,7 @@ function MeView({ onShare, onCard, onCreate, onSettings, onEditProfile, onCircle
   return <><section className="profile-hero"><Character member={me}/><div><Pill color="cream">{me.handle}</Pill><h2>{me.name}</h2><p>{me.bio || "还没有写介绍"}</p></div><button onClick={onEditProfile}>编辑资料</button></section><section className="passport-card"><div><span>COMMUNITY PASSPORT</span><h3>{cardCount} 张好人卡，完整故事都在档案里</h3><p>“{activeDb.goodCards.find((card) => card.toMemberId === me.id)?.story ?? "新的感谢故事会出现在这里。"}”</p></div><button onClick={onCard}>＋ 发一张卡</button></section><SectionTitle eyebrow="FULL ARCHIVE" title="我的完整社区档案"/><div className="archive-grid"><button onClick={() => onArchive("cards")}><strong>{cardCount}</strong><span>好人卡故事</span><small>查看谁写下了什么</small></button><button onClick={() => onArchive("listings")}><strong>{myListings.length}</strong><span>需要 / 提供</span><small>包含暂停与过往内容</small></button><button onClick={() => onArchive("transactions")}><strong>{transactionCount}</strong><span>互助记录</span><small>公开、私密与更正状态</small></button></div><SectionTitle eyebrow="OPEN NOW" title="我目前的需要 / 提供" action="公开设置" onAction={onSettings}/><div className="my-board"><button className="my-need" onClick={() => onArchive("listings")}><Pill color="pink">我想要</Pill><h3>{activeNeed?.title ?? "还没有发布中的需要"}</h3><span>{activeNeed ? `${activeNeed.visibility === "cross-circle" ? "跨圈公开" : "圈内可见"} · 查看完整内容` : "可以从“说一句”开始"}</span></button><button className="my-offer" onClick={() => onArchive("listings")}><Pill color="green">我可以给</Pill><h3>{activeOffer?.title ?? "还没有发布中的提供"}</h3><span>{activeOffer ? `${activeOffer.circleIds.length} 个圈可见 · 查看完整内容` : "让大家发现你的能力"}</span></button></div><SectionTitle eyebrow="MY CIRCLES" title="我的圈子" action="创建新圈" onAction={onCreate}/><div className="my-circles">{circles.filter((circle) => me.circleIds.includes(circle.id)).map((circle) => { const account = accountFor(me.id, circle.id); return <button className="my-circle" key={circle.id} onClick={() => onCircle(circle.id)}><Character text={circle.short} color={circle.color} variant={variantFor(circle.id)} small/><span><b>{circle.name}</b><small>{circle.currency} · {circle.members} 人</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div><div className="me-actions"><button className="secondary-button" onClick={onShare}>生成分享图</button><button className="text-link" onClick={onLogout}>退出登录</button></div></>;
 }
 
-function FeedList({ posts: list, onProfile, onShare, onPost }: { posts: Post[]; onProfile: (id?: string) => void; onShare: () => void; onPost: (id: number) => void }) {
+function FeedList({ posts: list, onProfile, onShare, onPost }: { posts: Post[]; onProfile: (id?: string) => void; onShare: () => void; onPost: (id: string) => void }) {
   return <div className="feed-list">{list.map((post) => <article key={post.id} className={`feed-card feed-${post.kind}`}><header><button className="feed-person" onClick={() => post.memberId ? onProfile(post.memberId) : onPost(post.id)}><Character text={post.avatar} color={post.color} variant={post.avatarVariant} small/><span><b>{post.person}</b><small>{post.caption}</small></span></button><Pill color={post.color}>{post.badge}</Pill></header><button className="feed-open" onClick={() => onPost(post.id)}><span className="feed-text">{post.text}</span><span className="chip-row">{post.chips.map((chip) => <i key={chip}>#{chip}</i>)}</span></button><footer><span>{post.meta}</span><span><button onClick={() => onPost(post.id)}>详情</button><button onClick={onShare}>分享 ↗</button></span></footer></article>)}</div>;
 }
 
@@ -762,7 +829,8 @@ function ProfileSheet({ member, activeCircleId, initialTab, onClose, onNotice, o
         <header><div>
           <Pill color={transaction.visibility === "private" ? "blue" : "yellow"}>{transaction.visibility === "private" ? "仅自己可见" : transaction.visibility === "mystery" ? "神秘记录" : "圈内公开"}</Pill>
           <span className={`status status-${transaction.status}`}>{transactionStatus[transaction.status]}</span>
-          {isSelf && transaction.status === "pending" && <button onClick={() => confirmTransaction(transaction.id)}>确认入账</button>}
+          {isSelf && transaction.status === "pending" && transaction.createdById !== activeDb.currentMemberId && <button onClick={() => confirmTransaction(transaction.id)}>确认入账</button>}
+          {isSelf && transaction.status === "pending" && transaction.createdById === activeDb.currentMemberId && <span className="status status-pending">等对方确认</span>}
           {canAmend && !proposal && <button onClick={() => proposeCorrection(transaction.id, transaction.amount)}>提议更正</button>}
           {canAmend && <button onClick={() => rejectTransaction(transaction.id)}>拒绝 / 撤销</button>}
         </div><strong>{transaction.amount} {circle.currency}</strong></header>
@@ -811,9 +879,21 @@ function RulesSheet({ circle, onClose }: { circle: Circle; onClose: () => void }
   </Modal>;
 }
 
-function MembersSheet({ circle, requests, onProfile, onInvite, onClose, onResolve }: { circle: Circle; requests: JoinRequest[]; onProfile: (id?: string) => void; onInvite: () => void; onClose: () => void; onResolve: (circleId: string, memberId: string, action: "approve" | "decline") => Promise<void> }) {
+function MembersSheet({ circle, requests, isOwner, onProfile, onInvite, onClose, onResolve, onLeave, onTransfer }: { circle: Circle; requests: JoinRequest[]; isOwner: boolean; onProfile: (id?: string) => void; onInvite: () => void; onClose: () => void; onResolve: (circleId: string, memberId: string, action: "approve" | "decline") => Promise<void>; onLeave: (circle: Circle) => Promise<void>; onTransfer: (circle: Circle, memberId: string) => Promise<void> }) {
   const circleMembers = circle.memberIds.map((id) => memberById(id));
-  return <Modal onClose={onClose} label={`${circle.name}全部成员`} wide><div className="sheet-heading member-heading"><Pill color={circle.color}>{circle.members} 位成员</Pill><h2>{circle.name}的成员地图</h2><p>这里展示的是最近活跃的角色。点击任意成员，可以看到对方愿意公开的需要、提供、好人卡与联系方式。</p></div>{requests.length > 0 && <section className="request-list"><SectionTitle eyebrow="WAITING" title={`${requests.length} 个人在等你放行`}/>{requests.map((request) => <article key={request.member.id}><Character member={request.member}/><div><b>{request.member.name}</b><small>{request.member.handle} · {request.requestedAt}</small>{request.note && <p>“{request.note}”</p>}</div><div className="request-actions"><button className="primary-button" onClick={() => onResolve(circle.id, request.member.id, "approve")}>通过</button><button className="secondary-button" onClick={() => onResolve(circle.id, request.member.id, "decline")}>谢绝</button></div></article>)}</section>}<div className="member-list">{circleMembers.map((member,index) => { const account = accountFor(member.id, circle.id); const offer = activeDb.listings.find((listing) => listing.memberId === member.id && listing.type === "offer" && listing.status === "active"); return <button key={member.id} onClick={() => onProfile(member.id)}><span className="member-index">0{index+1}</span><Character member={member}/><span><b>{member.name}</b><small>{member.handle}</small><p>{offer?.title ?? member.bio}</p></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div><button className="primary-button" onClick={onInvite}>＋ 邀请一位新成员</button></Modal>;
+  const me = activeDb.currentMemberId;
+  const balance = accountFor(me, circle.id).balance;
+  const others = circleMembers.filter((member) => member.id !== me);
+  // The invite page promises every member they can leave, so say plainly what
+  // still stands in the way rather than letting the server refuse silently.
+  const blocker = balance < 0
+    ? `你在这个圈子还有 ${balance} ${circle.currency}，先把余额补回非负才能退出。`
+    : isOwner && others.length > 0
+      ? "你是圈主。审批和设置只有圈主能做，所以要先把圈主转让给其他成员。"
+      : "";
+  return <Modal onClose={onClose} label={`${circle.name}全部成员`} wide><div className="sheet-heading member-heading"><Pill color={circle.color}>{circle.members} 位成员</Pill><h2>{circle.name}的成员地图</h2><p>这里展示的是最近活跃的角色。点击任意成员，可以看到对方愿意公开的需要、提供、好人卡与联系方式。</p></div>{requests.length > 0 && <section className="request-list"><SectionTitle eyebrow="WAITING" title={`${requests.length} 个人在等你放行`}/>{requests.map((request) => <article key={request.member.id}><Character member={request.member}/><div><b>{request.member.name}</b><small>{request.member.handle} · {request.requestedAt}</small>{request.note && <p>“{request.note}”</p>}</div><div className="request-actions"><button className="primary-button" onClick={() => onResolve(circle.id, request.member.id, "approve")}>通过</button><button className="secondary-button" onClick={() => onResolve(circle.id, request.member.id, "decline")}>谢绝</button></div></article>)}</section>}<div className="member-list">{circleMembers.map((member,index) => { const account = accountFor(member.id, circle.id); const offer = activeDb.listings.find((listing) => listing.memberId === member.id && listing.type === "offer" && listing.status === "active"); return <button key={member.id} onClick={() => onProfile(member.id)}><span className="member-index">0{index+1}</span><Character member={member}/><span><b>{member.name}</b><small>{member.handle}</small><p>{offer?.title ?? member.bio}</p></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div><button className="primary-button" onClick={onInvite}>＋ 邀请一位新成员</button>
+    {isOwner && others.length > 0 && <section className="transfer-owner"><SectionTitle eyebrow="HANDOVER" title="转让圈主"/><p className="soft-note">转让之后，审批入圈和修改设置由对方负责；你仍然留在圈子里。</p><div className="transfer-list">{others.map((member) => <button key={member.id} onClick={() => onTransfer(circle, member.id)}><Character member={member} small/><span><b>{member.name}</b><small>{member.handle}</small></span><strong>转让 →</strong></button>)}</div></section>}
+    <section className="leave-circle"><SectionTitle eyebrow="EXIT" title="退出这个圈子"/><p className="soft-note">{blocker || "过去的互助记录会留在圈子里——那是双方共同的事实；你的余额归零，发布中的内容会关闭。"}</p><button className="text-link danger" disabled={blocker !== ""} onClick={() => onLeave(circle)}>退出 {circle.name}</button></section></Modal>;
 }
 
 function InviteSheet({ circle, onClose, onNotice }: { circle: Circle; onClose: () => void; onNotice: (message: string) => void }) {
@@ -889,7 +969,7 @@ function FeedFilterSheet({ active, onSelect, onClose }: { active: FeedFilter; on
 }
 
 function PostSheet({ post, onProfile, onShare, onClose }: { post: Post; onProfile: () => void; onShare: () => void; onClose: () => void }) {
-  const circle = circles.find((item) => item.id === post.circleIds[0]) ?? circles[0];
+  const circle = circleById(post.circleIds[0]) ?? EMPTY_CIRCLE;
   const names = post.circleIds.map((id) => circleById(id)?.name).filter(Boolean);
   const details: { label: string; value: string }[] = [
     { label: names.length > 1 ? "所属圈子" : "所属圈子", value: names.join("、") || "—" },
@@ -899,13 +979,37 @@ function PostSheet({ post, onProfile, onShare, onClose }: { post: Post; onProfil
     details.push({ label: "时间 / 地点", value: `${listing.time} · ${listing.location}` }, { label: "参考", value: listing.reference }, { label: "可见范围", value: listing.visibility === "cross-circle" ? "跨圈公开" : "相关圈子" });
   } else if (post.source === "transaction") {
     const transaction = activeDb.transactions.find((item) => item.id === post.sourceId)!;
-    const status = transaction.status === "confirmed" ? "已确认" : transaction.status === "corrected" ? "已更正" : "已撤销";
+    const status = transaction.status === "confirmed" ? "已确认" : transaction.status === "corrected" ? "已更正" : transaction.status === "pending" ? "待对方确认" : "已撤销";
     details.push({ label: "发生 / 记录", value: `${transaction.happenedAt} · ${transaction.recordedAt} 记录` }, { label: "额度与状态", value: `${transaction.amount} ${circle.currency} · ${status}` }, { label: "可见范围", value: transaction.visibility === "mystery" ? "圈内神秘记录" : transaction.visibility === "private" ? "仅当事人" : "圈内公开" });
   } else {
     const card = activeDb.goodCards.find((item) => item.id === post.sourceId)!;
     details.push({ label: "写下日期", value: card.date }, { label: "可见范围", value: card.visibility === "cross-circle" ? "跨圈公开" : "接收者已隐藏" }, { label: "余额影响", value: "不产生余额，也不需要偿还" });
   }
   return <Modal onClose={onClose} label="动态详情"><div className={`post-detail detail-${post.color}`}><div className="post-detail-head"><Character text={post.avatar} color={post.color} variant={post.avatarVariant}/><div><Pill color="cream">{post.badge}</Pill><h2>{post.person}</h2><p>{post.caption}</p></div></div><p className="post-detail-copy">{post.text}</p><div className="chip-row">{post.chips.map((chip) => <span key={chip}>#{chip}</span>)}</div></div><div className="detail-meta">{details.map((detail) => <div key={detail.label}><span>{detail.label}</span><b>{detail.value}</b></div>)}<div><span>下一步</span><b>{post.kind === "need" || post.kind === "offer" ? "进入主页后微信联系" : "可以查看成员完整档案"}</b></div></div><div className="sheet-actions">{post.memberId ? <button className="secondary-button" onClick={onProfile}>查看成员主页</button> : <button className="secondary-button" onClick={onClose}>知道了</button>}<button className="primary-button" onClick={onShare}>生成分享图</button></div></Modal>;
+}
+
+function NotificationsSheet({ notifications, onClose }: { notifications: AppDatabase["notifications"]; onClose: () => void }) {
+  function describe(n: AppDatabase["notifications"][number]): { badge: string; color: Color; line: string } {
+    const who = n.actorId ? memberById(n.actorId).name : "有人";
+    const where = circleById(n.circleId)?.name;
+    const unit = circleById(n.circleId)?.currency ?? "额度";
+    switch (n.kind) {
+      case "join_request": return { badge: "入圈申请", color: "pink", line: `${who} 申请加入${where ?? "你的圈子"}${n.note ? `：“${n.note}”` : ""}` };
+      case "join_approved": return { badge: "已通过", color: "green", line: `${who} 放行了你加入${where ?? "圈子"}的申请` };
+      case "joined": return { badge: "新成员", color: "green", line: n.text === "owner_transferred" ? `${who} 把${where ?? "圈子"}的圈主转让给了你` : `${who} 加入了${where ?? "你的圈子"}` };
+      case "invite": return { badge: "待你处理", color: "yellow", line: n.amount ? `${who} 记了一笔 ${n.amount} ${unit}${n.note ? `：${n.note}` : ""}，等你确认` : `${who} 邀请你加入${where ?? "一个圈子"}` };
+      case "received": return { badge: "互助记录", color: "yellow", line: `${who} 记下了一笔 ${n.amount ?? ""} ${unit}${n.note ? `：${n.note}` : ""}` };
+      case "badge": return { badge: "好人卡", color: "coral", line: `${who} 写了一张好人卡给你${n.note ? `：“${n.note}”` : ""}` };
+      default: return { badge: "动态", color: "blue", line: n.text || `${who} 有新的动态` };
+    }
+  }
+
+  return <Modal onClose={onClose} label="通知" wide>
+    <div className="sheet-heading"><Pill color="yellow">NOTIFICATIONS</Pill><h2>需要你知道的事</h2><p>入圈申请、待确认的记录和好人卡都会出现在这里。</p></div>
+    {notifications.length === 0
+      ? <div className="empty-archive">还没有通知。有人申请入圈、记下一笔互助或写好人卡时，这里会亮起来。</div>
+      : <div className="archive-list notification-list">{notifications.map((n) => { const { badge, color, line } = describe(n); return <article key={n.id} className={n.read ? "" : "unread"}><header><Pill color={color}>{badge}</Pill><small>{n.createdAt}</small></header><p>{line}</p></article>; })}</div>}
+  </Modal>;
 }
 
 function SettingsSheet({ settings, onClose, onSaved }: { settings: AppDatabase["settings"]; onClose: () => void; onSaved: () => Promise<void> }) {
