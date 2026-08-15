@@ -24,7 +24,12 @@ export async function POST(request: Request) {
       error?: { message?: string };
     };
     if (!res.ok || !data.path)
-      return Response.json({ error: data.error?.message || "邀请创建失败" }, { status: res.status || 500 });
+      return Response.json(
+        { error: data.error?.message || "邀请创建失败" },
+        // A 2xx that somehow carries no path is still a failure here — don't
+        // ship the error body under the upstream's success status.
+        { status: res.ok ? 502 : res.status || 500 },
+      );
 
     return Response.json({ id: data.id, url: `${origin}${data.path}`, expiresAt: data.expires_at }, { status: 201 });
   });

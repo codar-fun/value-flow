@@ -14,6 +14,12 @@ export async function POST(request: Request) {
 
     // loop replies 204 on success; never reveal whether the account exists.
     if (res.ok) return Response.json({ ok: true });
+
+    // Pass through what the user can act on (rate limits, a malformed
+    // address); anything else stays generic so we leak nothing.
+    const data = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    if (res.status === 429 || res.status === 400)
+      return Response.json({ error: data.error?.message || "发送验证码失败，请稍后再试" }, { status: res.status });
     return Response.json({ error: "发送验证码失败，请稍后再试" }, { status: 502 });
   } catch {
     return Response.json({ error: "发送验证码失败" }, { status: 500 });

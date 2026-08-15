@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AvatarVariant, Circle, Color, DiscoverableCircle, JoinRequest, Member } from "./types";
 import type { AppDatabase } from "../db/runtime";
 import type { ComposeInput } from "./api/records/route";
@@ -298,8 +298,13 @@ export default function Home() {
   }
 
   async function logout() {
-    try { await fetch("/api/auth/logout", { method: "POST" }); } catch { /* ignore */ }
-    setView("feed");
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      if (!response.ok) { flash("退出登录失败，请重试"); return; }
+    } catch { flash("退出登录失败，请检查网络"); return; }
+    setView("feed"); setOverlay(null); setComposer(false);
+    setCircleId(""); setFeedCircleId("all"); setSelectedMemberId(""); setSelectedPostId("");
+    setOpenCircles([]); setLoadFailed(false);
     setDb(initialDb); // session.authenticated=false → the login gate takes over
   }
 
@@ -338,9 +343,11 @@ export default function Home() {
     return post.kind === discoverFilter;
   }), [db, discoverFilter]);
 
+  const toastTimer = useRef(0);
   function flash(message: string) {
     setToast(message);
-    window.setTimeout(() => setToast(""), 2400);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(""), 2400);
   }
 
   // Auth gate: wait for the first bootstrap, then require a loop-backend session.
@@ -431,7 +438,7 @@ export default function Home() {
     {composer && <ComposerSheet circleId={activeCircle.id} intent={intent} setIntent={setIntent} onClose={() => setComposer(false)} onSubmit={submitCompose} onNotice={flash}/>} 
     {overlay === "share" && <ShareSheet onClose={() => setOverlay(null)} onDone={async () => {
       const me=memberById(currentMemberId); const canShare=typeof navigator.share==="function";
-      if(canShare) await navigator.share({title:`${me.name}的流动清单`,text:"可以问，也可以拒绝。",url:location.href}); else await navigator.clipboard.writeText(location.href); setOverlay(null); flash(canShare?"已经交给系统分享":"页面链接已复制，可以发到微信群");
+      try{ if(canShare) await navigator.share({title:`${me.name}的流动清单`,text:"可以问，也可以拒绝。",url:location.href}); else await navigator.clipboard.writeText(location.href); }catch{ setOverlay(null); return; } setOverlay(null); flash(canShare?"已经交给系统分享":"页面链接已复制，可以发到微信群");
     }}/>} 
     {overlay === "profile" && selectedMember && <ProfileSheet member={selectedMember} activeCircleId={circleId} initialTab={profileTab} onClose={() => setOverlay(null)} onNotice={flash} onChanged={refreshData}/>} 
     {overlay === "rules" && <RulesSheet circle={activeCircle} onClose={() => setOverlay(null)}/>}
@@ -629,8 +636,11 @@ function ComposerSheet({ circleId, intent, setIntent, onClose, onSubmit, onNotic
   const [listingCircleIds, setListingCircleIds] = useState<string[]>(circleId ? [circleId] : []);
   const [crossCircle, setCrossCircle] = useState(false);
 
-  const circle = circleById(circleId) ?? EMPTY_CIRCLE;
   const myCircles = circles.filter((item) => memberById(activeDb.currentMemberId)?.circleIds.includes(item.id));
+  // `circleId` is whatever tab is open, which is `circles[0]` before the user
+  // has picked one — so track the target explicitly and show it in the form.
+  const [recordCircleId, setRecordCircleId] = useState(circleId || myCircles[0]?.id || "");
+  const circle = circleById(recordCircleId) ?? EMPTY_CIRCLE;
   const others = circle.memberIds.map((mid) => memberById(mid)).filter((m) => m && m.id !== activeDb.currentMemberId);
   const isLedger = intent === "record";
   const isCard = intent === "card";
@@ -699,9 +709,10 @@ function ComposerSheet({ circleId, intent, setIntent, onClose, onSubmit, onNotic
     {!review ? <>
       <div className="intent-grid">{intents.map((item) => <button key={item.id} className={`intent intent-${item.color} ${intent === item.id ? "selected" : ""}`} onClick={() => setIntent(item.id)}><b>{item.icon}</b><span><strong>{item.label}</strong><small>{item.hint}</small></span></button>)}</div>
 
-      {(isLedger || isCard) && (circle.id === "" ? <p className="soft-note">先选择一个圈子，再记录互助。</p> : others.length === 0
+      {(isLedger || isCard) && (myCircles.length === 0 ? <p className="soft-note">先加入或创建一个圈子，再记录互助。</p> : others.length === 0
         ? <p className="soft-note">「{circle.name}」还没有其他成员。先到圈子页「邀请成员」，对方加入后就可以互相记录了。</p>
         : <div className="manual-form">
+            {myCircles.length > 1 && <label><span>记在哪个圈子</span><select value={recordCircleId} onChange={(e) => { setRecordCircleId(e.target.value); setOtherId(""); }}>{myCircles.map((item) => <option key={item.id} value={item.id}>{item.name}（{item.currency}）</option>)}</select></label>}
             <label><span>{isLedger ? "和谁的互助" : "把好人卡送给谁"}</span><select value={otherId} onChange={(e) => setOtherId(e.target.value)}><option value="">选择一位成员</option>{others.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
 
             {isLedger && <>
@@ -753,7 +764,9 @@ function ProfileSheet({ member, activeCircleId, initialTab, onClose, onNotice, o
   const [tab, setTab] = useState<ProfileTab>(initialTab);
   const isSelf = member.id === activeDb.currentMemberId;
   const accounts = activeDb.accounts.filter((item) => item.memberId === member.id);
-  const activeAccount = accounts.find((item) => item.circleId === activeCircleId) ?? accounts[0] ?? accountFor(member.id, activeCircleId);
+  // Falling back to accounts[0] labelled the number with a circle the viewer
+  // wasn't looking at; without a circle in context, show none.
+  const activeAccount = accounts.find((item) => item.circleId === activeCircleId) ?? accountFor(member.id, activeCircleId);
   const activeCircle = circleById(activeAccount.circleId) ?? EMPTY_CIRCLE;
   const cards = activeDb.goodCards.filter((card) => card.toMemberId === member.id && (card.visibility === "cross-circle" || isSelf));
   const listings = activeDb.listings.filter((listing) => listing.memberId === member.id);
@@ -900,8 +913,8 @@ function InviteSheet({ circle, onClose, onNotice }: { circle: Circle; onClose: (
   const [method, setMethod] = useState<"link" | "poster">("link");
   const [inviteUrl,setInviteUrl]=useState(""); const [creating,setCreating]=useState(false);
   async function createInvite(){try{setCreating(true);const response=await fetch("/api/invitations",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({circleId:circle.id})});const result=await response.json() as {url?:string;error?:string};if(!response.ok||!result.url)throw new Error(result.error||"邀请创建失败");setInviteUrl(result.url);return result.url;}catch(error){onNotice(error instanceof Error?error.message:"邀请创建失败");return "";}finally{setCreating(false);}}
-  async function copyInvite(){const url=inviteUrl||await createInvite();if(!url)return;await navigator.clipboard.writeText(url);onNotice("邀请链接已复制");}
-  async function shareInvite(){const url=inviteUrl||await createInvite();if(!url)return;const canShare=typeof navigator.share==="function";if(canShare)await navigator.share({title:`加入${circle.name}`,text:circle.tagline,url});else await navigator.clipboard.writeText(url);onNotice(canShare?"邀请已经交给系统分享":"邀请链接已复制，可以粘贴到微信");}
+  async function copyInvite(){const url=inviteUrl||await createInvite();if(!url)return;try{await navigator.clipboard.writeText(url);onNotice("邀请链接已复制");}catch{onNotice("复制失败，请手动复制链接");}}
+  async function shareInvite(){const url=inviteUrl||await createInvite();if(!url)return;const canShare=typeof navigator.share==="function";try{if(canShare)await navigator.share({title:`加入${circle.name}`,text:circle.tagline,url});else await navigator.clipboard.writeText(url);}catch{return;}onNotice(canShare?"邀请已经交给系统分享":"邀请链接已复制，可以粘贴到微信");}
   return <Modal onClose={onClose} label={`邀请加入${circle.name}`}><div className="sheet-heading"><Pill color={circle.color}>{circle.joining === "approval" ? "加入需审批" : "受邀可直接加入"}</Pill><h2>邀请一个认识的人，加入 {circle.name}</h2><p>邀请链接 7 天有效、仅可使用一次。</p></div><div className="invite-tabs"><button className={method === "link" ? "active" : ""} onClick={() => setMethod("link")}>邀请链接</button><button className={method === "poster" ? "active" : ""} onClick={() => setMethod("poster")}>微信邀请图</button></div>{method === "link" ? <div className="invite-link"><span>7 天有效 · 仅可使用 1 次</span><b>{inviteUrl||"点击下方按钮生成安全邀请链接"}</b><button disabled={creating} onClick={copyInvite}>{creating?"正在生成…":inviteUrl?"复制链接":"生成并复制"}</button></div> : <div className={`mini-invite-poster hero-${circle.color}`}><div className={`camp-flag flag-${circle.color}`}>{circle.short}</div><span>来自圈内伙伴的邀请</span><h3>来 {circle.name}<br/>看看我们还能怎样互相帮助</h3><p>可以问，也可以拒绝。</p><div className="mini-code">▦</div></div>}<div className="invite-checklist"><b>受邀者会先看到</b><span>✓ 圈子介绍与运行方式</span><span>✓ 什么会被记录、谁能看见</span><span>✓ 可以拒绝具体请求，也可以退出</span></div><button className="primary-button" disabled={creating} onClick={shareInvite}>{method === "link" ? "分享邀请" : "分享邀请图与链接"}</button></Modal>;
 }
 

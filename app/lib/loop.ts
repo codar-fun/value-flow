@@ -77,18 +77,15 @@ export function clearedCookies(): Cookie[] {
 
 type Resolved = { accessToken: string | null; cookies: Cookie[] };
 
-// Return a usable access token for this request, refreshing (and producing
-// Set-Cookie updates) only when the cached one is missing or near expiry.
-export async function ensureAccessToken(request: Request): Promise<Resolved> {
-  const at = readCookie(request, AT);
-  const exp = Number(readCookie(request, AT_EXP) || 0);
-  const now = Math.floor(Date.now() / 1000);
+// loop rotates the refresh token on every use, so two requests that arrive
+// together with an expired access token would both spend the *same* RT: the
+// first succeeds, the second is handed an already-consumed token, gets a 401,
+// and clears the session — logging the user out mid-action. The page fires
+// concurrent requests routinely (the ?join= effect alongside a user action),
+// so collapse overlapping refreshes of one RT onto a single in-flight call.
+const inFlight = new Map<string, Promise<Resolved>>();
 
-  if (at && exp > now + SKEW) return { accessToken: at, cookies: [] };
-
-  const rt = readCookie(request, RT);
-  if (!rt) return { accessToken: null, cookies: [] };
-
+async function refresh(rt: string): Promise<Resolved> {
   const res = await fetch(`${LOOP_API_BASE}/auth/refresh`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -107,6 +104,28 @@ export async function ensureAccessToken(request: Request): Promise<Resolved> {
     accessToken: data.access_token,
     cookies: sessionCookies(data.refresh_token, data.access_token, data.expires_in),
   };
+}
+
+// Return a usable access token for this request, refreshing (and producing
+// Set-Cookie updates) only when the cached one is missing or near expiry.
+export async function ensureAccessToken(request: Request): Promise<Resolved> {
+  const at = readCookie(request, AT);
+  const exp = Number(readCookie(request, AT_EXP) || 0);
+  const now = Math.floor(Date.now() / 1000);
+
+  if (at && exp > now + SKEW) return { accessToken: at, cookies: [] };
+
+  const rt = readCookie(request, RT);
+  if (!rt) return { accessToken: null, cookies: [] };
+
+  // Both callers get the same new pair, so whichever Set-Cookie lands last
+  // still leaves the browser holding a consistent, live session.
+  let pending = inFlight.get(rt);
+  if (!pending) {
+    pending = refresh(rt).finally(() => inFlight.delete(rt));
+    inFlight.set(rt, pending);
+  }
+  return pending;
 }
 
 // ─── authenticated loop calls ───────────────────────────────────────────────
