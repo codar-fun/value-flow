@@ -59,6 +59,9 @@ function memberById(id?: string) {
   return members.find((member) => member.id === id) ?? UNKNOWN_MEMBER;
 }
 
+// UNKNOWN_MEMBER has no id, so nothing can be opened for them — don't offer.
+const isKnown = (member: Member) => member.id !== "";
+
 function circleById(id?: string): Circle | undefined {
   return circles.find((circle) => circle.id === id);
 }
@@ -215,6 +218,9 @@ export default function Home() {
   // exactly like being signed out and asked people to re-enter an OTP.
   const [loadFailed, setLoadFailed] = useState(false);
   const [createSession, setCreateSession] = useState(0);
+  // Sheets opened from inside another sheet return there on close, instead of
+  // dumping the user back to the feed.
+  const [overlayReturn, setOverlayReturn] = useState<Overlay>(null);
 
   activeDb = db; members = db.members; circles = db.circles; posts = buildPosts();
   const currentMemberId = db.currentMemberId;
@@ -226,6 +232,14 @@ export default function Home() {
     setLoadFailed(false);
     setDb(payload);
     loadOpenCircles();
+  }
+
+  // Call this instead of refreshData() after a write has already succeeded. A
+  // failed refetch leaves the screen stale, which the next load fixes; letting
+  // it surface as a failed write is what makes people retry — and on the
+  // composer path a retry writes a second ledger entry.
+  async function syncAfterWrite() {
+    try { await refreshData(); } catch { /* stale until the next load */ }
   }
 
   // Circles the user could still join (loop's `GET /circles`, minus their own).
@@ -240,7 +254,7 @@ export default function Home() {
       const response = await fetch(`/api/circles/${cid}/requests/${memberId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "处理失败");
-      await refreshData();
+      await syncAfterWrite();
       flash(action === "approve" ? "已通过，对方成为正式成员" : "已谢绝这次申请");
     } catch (error) { flash(error instanceof Error ? error.message : "处理失败"); }
   }
@@ -251,7 +265,7 @@ export default function Home() {
       const response = await fetch(`/api/circles/${circle.id}/join`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
       const result = await response.json() as { status?: string; error?: string };
       if (!response.ok) throw new Error(result.error || "加入失败");
-      await refreshData();
+      await syncAfterWrite();
       flash(result.status === "pending" ? `已申请加入${circle.name}，等待圈主确认` : `已加入${circle.name}`);
     } catch (error) { flash(error instanceof Error ? error.message : "加入失败"); }
   }
@@ -261,7 +275,7 @@ export default function Home() {
       const response = await fetch(`/api/circles/${circle.id}/join`, { method: "DELETE" });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "撤回失败");
-      await refreshData();
+      await syncAfterWrite();
       flash(`已撤回加入${circle.name}的申请`);
     } catch (error) { flash(error instanceof Error ? error.message : "撤回失败"); }
   }
@@ -274,7 +288,7 @@ export default function Home() {
       // loop refuses with a reason (还欠着额度 / 要先转让圈主) — show it as-is.
       if (!response.ok) throw new Error(result.error || "退出失败");
       setOverlay(null); showAllCircles();
-      await refreshData();
+      await syncAfterWrite();
       flash(result.status === "archived" ? `已退出，${circle.name}没有成员了，已归档` : `已退出${circle.name}`);
     } catch (error) { flash(error instanceof Error ? error.message : "退出失败"); }
   }
@@ -286,7 +300,7 @@ export default function Home() {
       const response = await fetch(`/api/circles/${circle.id}/owner`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ memberId }) });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "转让失败");
-      await refreshData();
+      await syncAfterWrite();
       flash(`已把圈主转让给 ${target.name}`);
     } catch (error) { flash(error instanceof Error ? error.message : "转让失败"); }
   }
@@ -294,7 +308,7 @@ export default function Home() {
   async function markNotificationsRead() {
     try {
       await fetch("/api/notifications/read", { method: "POST" });
-      await refreshData();
+      await syncAfterWrite();
     } catch { /* the badge simply stays until the next load */ }
   }
 
@@ -323,7 +337,7 @@ export default function Home() {
     if (!joinToken) return;
     window.history.replaceState({}, "", "/");
     fetch(`/api/invitations/${encodeURIComponent(joinToken)}`, { method: "POST" })
-      .then(async (r) => { const d = (await r.json().catch(() => ({}))) as { status?: string; error?: string }; if (r.ok) { await refreshData(); flash(d.status === "pending" ? "已申请加入，等待管理员确认" : "已加入圈子"); } else { flash(d.error || "加入失败"); } })
+      .then(async (r) => { const d = (await r.json().catch(() => ({}))) as { status?: string; error?: string }; if (r.ok) { await syncAfterWrite(); flash(d.status === "pending" ? "已申请加入，等待管理员确认" : "已加入圈子"); } else { flash(d.error || "加入失败"); } })
       .catch(() => {});
   }, [db.session.authenticated]);
 
@@ -331,6 +345,10 @@ export default function Home() {
   const activeAccount = accountFor(currentMemberId, activeCircle.id);
   const selectedMember = memberById(selectedMemberId);
   const selectedPost = posts.find((post) => post.id === selectedPostId);
+  // The entry can vanish under an open detail sheet (the author pauses a
+  // listing, a record is rejected). Drop the overlay rather than leaving it
+  // keyed open on nothing.
+  useEffect(() => { if (overlay === "post" && !selectedPost) setOverlay(null); }, [overlay, selectedPost]);
   const isCircleOwner = activeCircle.ownerId === currentMemberId && activeCircle.id !== "";
   const feedPosts = useMemo(() => posts.filter((post) => {
     if (feedCircleId !== "all" && !post.circleIds.includes(feedCircleId)) return false;
@@ -377,6 +395,16 @@ export default function Home() {
     setView("create");
   }
 
+  function openSubSheet(next: Overlay) {
+    setOverlayReturn(overlay);
+    setOverlay(next);
+  }
+
+  function closeOverlay() {
+    setOverlay(overlayReturn);
+    setOverlayReturn(null);
+  }
+
   function openProfile(id?: string, tab: ProfileTab = "cards") {
     if (!id) return;
     setSelectedMemberId(id); setProfileTab(tab); setOverlay("profile");
@@ -390,12 +418,15 @@ export default function Home() {
     const response = await fetch("/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
     const result = await response.json() as { error?: string };
     if (!response.ok) throw new Error(result.error || "保存失败");
-    await refreshData(); setComposer(false);
+    // Close first: the entry is already saved, and leaving the draft up with a
+    // live 确认发布 button is exactly how you get two identical ledger entries.
+    setComposer(false);
+    await syncAfterWrite();
     flash(input.intent === "record" ? "记录已进入圈子，对方可以修改或拒绝" : input.intent === "card" ? "好人卡已送到对方的跨圈主页" : "已经发布，可以生成分享图啦");
   }
 
   if (circles.length === 0 && view !== "create") {
-    return <AccountStartView member={memberById(currentMemberId)} openCircles={openCircles} pendingCircles={db.pendingCircles} onSaved={refreshData} onJoin={joinCircle} onWithdraw={withdrawRequest} onCreate={openCreateCircle} onLogout={logout}/>;
+    return <AccountStartView member={memberById(currentMemberId)} openCircles={openCircles} pendingCircles={db.pendingCircles} onSaved={syncAfterWrite} onJoin={joinCircle} onWithdraw={withdrawRequest} onCreate={openCreateCircle} onLogout={logout}/>;
   }
 
   return <main className="world-shell">
@@ -419,7 +450,7 @@ export default function Home() {
             if(!response.ok) throw new Error(result.error||"创建失败");
             // The circle exists from here on. A failed refetch must not surface
             // as a failed creation, or the user retries and makes a duplicate.
-            try { await refreshData(); } catch { /* the next load picks it up */ }
+            await syncAfterWrite();
             flash(`${input.name}已经创建，可以邀请成员了`);
           }}/>} 
           {view === "feed" && <FeedView activeCircle={activeCircle} activeAccount={activeAccount} isAllCircles={feedCircleId === "all"} posts={feedPosts} filter={feedFilter} onSpeak={openComposer} onCircle={() => setView("circle")} onMe={() => setView("me")} onProfile={openProfile} onShare={() => setOverlay("share")} onFilter={() => setOverlay("feedFilter")} onPost={openPost}/>}
@@ -444,20 +475,20 @@ export default function Home() {
     </aside>
 
     {composer && <ComposerSheet circleId={activeCircle.id} intent={intent} setIntent={setIntent} onClose={() => setComposer(false)} onSubmit={submitCompose} onNotice={flash}/>} 
-    {overlay === "share" && <ShareSheet onClose={() => setOverlay(null)} onDone={async () => {
+    {overlay === "share" && <ShareSheet onClose={closeOverlay} onDone={async () => {
       const me=memberById(currentMemberId); const canShare=typeof navigator.share==="function";
       try{ if(canShare) await navigator.share({title:`${me.name}的流动清单`,text:"可以问，也可以拒绝。",url:location.href}); else await navigator.clipboard.writeText(location.href); }catch{ setOverlay(null); return; } setOverlay(null); flash(canShare?"已经交给系统分享":"页面链接已复制，可以发到微信群");
     }}/>} 
-    {overlay === "profile" && selectedMember && <ProfileSheet member={selectedMember} activeCircleId={circleId} initialTab={profileTab} onClose={() => setOverlay(null)} onNotice={flash} onChanged={refreshData}/>} 
+    {overlay === "profile" && selectedMember && <ProfileSheet member={selectedMember} activeCircleId={activeCircle.id} initialTab={profileTab} onClose={() => setOverlay(null)} onNotice={flash} onChanged={syncAfterWrite}/>} 
     {overlay === "rules" && <RulesSheet circle={activeCircle} onClose={() => setOverlay(null)}/>}
-    {overlay === "members" && <MembersSheet circle={activeCircle} requests={db.joinRequests.filter((r) => r.circleId === activeCircle.id)} isOwner={isCircleOwner} onProfile={openProfile} onInvite={() => setOverlay("invite")} onClose={() => setOverlay(null)} onResolve={resolveRequest} onLeave={leaveCircle} onTransfer={transferOwner}/>}
-    {overlay === "invite" && <InviteSheet circle={activeCircle} onClose={() => setOverlay(null)} onNotice={flash}/>}
+    {overlay === "members" && <MembersSheet circle={activeCircle} requests={db.joinRequests.filter((r) => r.circleId === activeCircle.id)} isOwner={isCircleOwner} onProfile={openProfile} onInvite={() => openSubSheet("invite")} onClose={closeOverlay} onResolve={resolveRequest} onLeave={leaveCircle} onTransfer={transferOwner}/>}
+    {overlay === "invite" && <InviteSheet circle={activeCircle} onClose={closeOverlay} onNotice={flash}/>}
     {overlay === "feedFilter" && <FeedFilterSheet active={feedFilter} onSelect={(next) => { setFeedFilter(next); setOverlay(null); }} onClose={() => setOverlay(null)}/>}
     {overlay === "post" && selectedPost && <PostSheet post={selectedPost} onProfile={() => selectedPost.memberId && openProfile(selectedPost.memberId)} onShare={() => setOverlay("share")} onClose={() => setOverlay(null)}/>}
     {overlay === "notifications" && <NotificationsSheet notifications={db.notifications} onClose={() => setOverlay(null)}/>}
-    {overlay === "settings" && <SettingsSheet settings={db.settings} onClose={() => setOverlay(null)} onSaved={async () => { await refreshData(); flash("公开设置已经保存"); }}/>} 
-    {overlay === "circleSettings" && <CircleSettingsSheet circle={activeCircle} onClose={() => setOverlay(null)} onSaved={refreshData} onNotice={flash}/>}
-    {overlay === "editProfile" && <EditProfileSheet member={memberById(currentMemberId)} onClose={() => setOverlay(null)} onSaved={refreshData} onNotice={flash}/>}
+    {overlay === "settings" && <SettingsSheet settings={db.settings} onClose={() => setOverlay(null)} onSaved={async () => { await syncAfterWrite(); flash("公开设置已经保存"); }}/>} 
+    {overlay === "circleSettings" && <CircleSettingsSheet circle={activeCircle} onClose={() => setOverlay(null)} onSaved={syncAfterWrite} onNotice={flash}/>}
+    {overlay === "editProfile" && <EditProfileSheet member={memberById(currentMemberId)} onClose={() => setOverlay(null)} onSaved={syncAfterWrite} onNotice={flash}/>}
     {toast && <div className="toast" role="status">{toast}</div>}
   </main>;
 }
@@ -472,6 +503,8 @@ function AccountStartView({ member, openCircles, pendingCircles, onSaved, onJoin
   const [error,setError]=useState("");
   const [saved,setSaved]=useState(false);
   const joinable = openCircles.filter((circle) => !circle.pending);
+  // Any edit makes the ✓ a lie, so drop it as soon as a field changes.
+  const edit = <T,>(set: (v: T) => void) => (v: T) => { setSaved(false); set(v); };
 
   async function saveProfile() {
     try {
@@ -494,9 +527,9 @@ function AccountStartView({ member, openCircles, pendingCircles, onSaved, onJoin
     <h1>先完善档案，<br/>再找到你的圈子。</h1>
     <p>这里只记录你愿意公开的社区身份。真实协商仍然发生在微信或线下。</p>
     <div className="account-form">
-      <label><span>怎么称呼你</span><input value={name} onChange={(event)=>setName(event.target.value)} placeholder="昵称"/></label>
-      <label><span>一句话介绍（可稍后填写）</span><input value={bio} maxLength={80} onChange={(event)=>setBio(event.target.value)} placeholder="例如：喜欢把坏掉的东西拆开"/></label>
-      <label><span>联系方式 / 微信号（可稍后填写）</span><input value={wechat} maxLength={60} onChange={(event)=>setWechat(event.target.value)} placeholder="只对同圈成员显示"/></label>
+      <label><span>怎么称呼你</span><input value={name} onChange={(event)=>edit(setName)(event.target.value)} placeholder="昵称"/></label>
+      <label><span>一句话介绍（可稍后填写）</span><input value={bio} maxLength={80} onChange={(event)=>edit(setBio)(event.target.value)} placeholder="例如：喜欢把坏掉的东西拆开"/></label>
+      <label><span>联系方式 / 微信号（可稍后填写）</span><input value={wechat} maxLength={60} onChange={(event)=>edit(setWechat)(event.target.value)} placeholder="只对同圈成员显示"/></label>
     </div>
     {error&&<p className="account-error">{error}</p>}
     <button className="primary-button" disabled={saving} onClick={saveProfile}>{saving?"正在保存…":saved?"已保存 ✓":"保存档案"}</button>
@@ -871,7 +904,7 @@ function ProfileSheet({ member, activeCircleId, initialTab, onClose, onNotice, o
     <div className="account-strip">{accounts.map((account) => { const circle = circleById(account.circleId) ?? EMPTY_CIRCLE; return <div key={account.circleId}><span>{circle.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance} {circle.currency}</b><small>给出 {account.given} · 收到 {account.received}</small></div>; })}</div>
 
     {contact
-      ? <div className="contact-reveal"><span>{member.wechat ? "联系方式" : "账号"}</span><b>{member.wechat || member.handle}</b><button onClick={async () => { await navigator.clipboard.writeText(member.wechat || member.handle); onNotice("已复制"); }}>复制</button></div>
+      ? <div className="contact-reveal"><span>{member.wechat ? "联系方式" : "账号"}</span><b>{member.wechat || member.handle}</b><button onClick={async () => { try { await navigator.clipboard.writeText(member.wechat || member.handle); onNotice("已复制"); } catch { onNotice("复制失败，请手动复制"); } }}>复制</button></div>
       : <button className="primary-button" onClick={() => setContact(true)}>联系{member.name}{member.wechat ? "，查看联系方式" : ""}</button>}
     {contact && !member.wechat && <p className="soft-note">{isSelf ? "你还没有填写联系方式，可以在「我的 → 编辑资料」补上。" : "TA 还没有填写联系方式，可以先在圈子里留言。"}</p>}
     <p className="soft-note">看到“可以提供”不代表对方必须答应。私密交易与隐藏内容只对本人可见。</p>
@@ -902,17 +935,21 @@ function RulesSheet({ circle, onClose }: { circle: Circle; onClose: () => void }
 
 function MembersSheet({ circle, requests, isOwner, onProfile, onInvite, onClose, onResolve, onLeave, onTransfer }: { circle: Circle; requests: JoinRequest[]; isOwner: boolean; onProfile: (id?: string) => void; onInvite: () => void; onClose: () => void; onResolve: (circleId: string, memberId: string, action: "approve" | "decline") => Promise<void>; onLeave: (circle: Circle) => Promise<void>; onTransfer: (circle: Circle, memberId: string) => Promise<void> }) {
   const circleMembers = circle.memberIds.map((id) => memberById(id));
+  // The row only disappears once the refetch lands, so without this a double
+  // tap sends the same approve twice.
+  const [busy, setBusy] = useState(false);
+  async function run(action: () => Promise<void>) { setBusy(true); try { await action(); } finally { setBusy(false); } }
   const me = activeDb.currentMemberId;
   const balance = accountFor(me, circle.id).balance;
   const others = circleMembers.filter((member) => member.id !== me);
   // The invite page promises every member they can leave, so say plainly what
   // still stands in the way rather than letting the server refuse silently.
   const blocker = balance < 0
-    ? `你在这个圈子还有 ${balance} ${circle.currency}，先把余额补回非负才能退出。`
+    ? `你在这个圈子还欠 ${-balance} ${circle.currency}，先把余额补回非负才能退出。`
     : isOwner && others.length > 0
       ? "你是圈主。审批和设置只有圈主能做，所以要先把圈主转让给其他成员。"
       : "";
-  return <Modal onClose={onClose} label={`${circle.name}全部成员`} wide><div className="sheet-heading member-heading"><Pill color={circle.color}>{circle.members} 位成员</Pill><h2>{circle.name}的成员地图</h2><p>这里展示的是最近活跃的角色。点击任意成员，可以看到对方愿意公开的需要、提供、好人卡与联系方式。</p></div>{requests.length > 0 && <section className="request-list"><SectionTitle eyebrow="WAITING" title={`${requests.length} 个人在等你放行`}/>{requests.map((request) => <article key={request.member.id}><Character member={request.member}/><div><b>{request.member.name}</b><small>{request.member.handle} · {request.requestedAt}</small>{request.note && <p>“{request.note}”</p>}</div><div className="request-actions"><button className="primary-button" onClick={() => onResolve(circle.id, request.member.id, "approve")}>通过</button><button className="secondary-button" onClick={() => onResolve(circle.id, request.member.id, "decline")}>谢绝</button></div></article>)}</section>}<div className="member-list">{circleMembers.map((member,index) => { const account = accountFor(member.id, circle.id); const offer = activeDb.listings.find((listing) => listing.memberId === member.id && listing.type === "offer" && listing.status === "active"); return <button key={member.id} onClick={() => onProfile(member.id)}><span className="member-index">0{index+1}</span><Character member={member}/><span><b>{member.name}</b><small>{member.handle}</small><p>{offer?.title ?? member.bio}</p></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div><button className="primary-button" onClick={onInvite}>＋ 邀请一位新成员</button>
+  return <Modal onClose={onClose} label={`${circle.name}全部成员`} wide><div className="sheet-heading member-heading"><Pill color={circle.color}>{circle.members} 位成员</Pill><h2>{circle.name}的成员地图</h2><p>这里展示的是最近活跃的角色。点击任意成员，可以看到对方愿意公开的需要、提供、好人卡与联系方式。</p></div>{requests.length > 0 && <section className="request-list"><SectionTitle eyebrow="WAITING" title={`${requests.length} 个人在等你放行`}/>{requests.map((request) => <article key={request.member.id}><Character member={request.member}/><div><b>{request.member.name}</b><small>{request.member.handle} · {request.requestedAt}</small>{request.note && <p>“{request.note}”</p>}</div><div className="request-actions"><button className="primary-button" disabled={busy} onClick={() => run(() => onResolve(circle.id, request.member.id, "approve"))}>通过</button><button className="secondary-button" disabled={busy} onClick={() => run(() => onResolve(circle.id, request.member.id, "decline"))}>谢绝</button></div></article>)}</section>}<div className="member-list">{circleMembers.map((member,index) => { const account = accountFor(member.id, circle.id); const offer = activeDb.listings.find((listing) => listing.memberId === member.id && listing.type === "offer" && listing.status === "active"); return <button key={member.id || `unknown-${index}`} disabled={!isKnown(member)} onClick={() => onProfile(member.id)}><span className="member-index">0{index+1}</span><Character member={member}/><span><b>{member.name}</b><small>{member.handle}</small><p>{offer?.title ?? member.bio}</p></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div><button className="primary-button" onClick={onInvite}>＋ 邀请一位新成员</button>
     {isOwner && others.length > 0 && <section className="transfer-owner"><SectionTitle eyebrow="HANDOVER" title="转让圈主"/><p className="soft-note">转让之后，审批入圈和修改设置由对方负责；你仍然留在圈子里。</p><div className="transfer-list">{others.map((member) => <button key={member.id} onClick={() => onTransfer(circle, member.id)}><Character member={member} small/><span><b>{member.name}</b><small>{member.handle}</small></span><strong>转让 →</strong></button>)}</div></section>}
     <section className="leave-circle"><SectionTitle eyebrow="EXIT" title="退出这个圈子"/><p className="soft-note">{blocker || "过去的互助记录会留在圈子里——那是双方共同的事实；你的余额归零，发布中的内容会关闭。"}</p><button className="text-link danger" disabled={blocker !== ""} onClick={() => onLeave(circle)}>退出 {circle.name}</button></section></Modal>;
 }
@@ -921,8 +958,10 @@ function InviteSheet({ circle, onClose, onNotice }: { circle: Circle; onClose: (
   const [method, setMethod] = useState<"link" | "poster">("link");
   const [inviteUrl,setInviteUrl]=useState(""); const [creating,setCreating]=useState(false);
   async function createInvite(){try{setCreating(true);const response=await fetch("/api/invitations",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({circleId:circle.id})});const result=await response.json() as {url?:string;error?:string};if(!response.ok||!result.url)throw new Error(result.error||"邀请创建失败");setInviteUrl(result.url);return result.url;}catch(error){onNotice(error instanceof Error?error.message:"邀请创建失败");return "";}finally{setCreating(false);}}
-  async function copyInvite(){const url=inviteUrl||await createInvite();if(!url)return;try{await navigator.clipboard.writeText(url);onNotice("邀请链接已复制");}catch{onNotice("复制失败，请手动复制链接");}}
-  async function shareInvite(){const url=inviteUrl||await createInvite();if(!url)return;const canShare=typeof navigator.share==="function";try{if(canShare)await navigator.share({title:`加入${circle.name}`,text:circle.tagline,url});else await navigator.clipboard.writeText(url);}catch{return;}onNotice(canShare?"邀请已经交给系统分享":"邀请链接已复制，可以粘贴到微信");}
+  // Every copy/share mints a fresh link: these are single-use, so reusing the
+  // cached one would hand two people the same token and fail the second.
+  async function copyInvite(){const url=await createInvite();if(!url)return;try{await navigator.clipboard.writeText(url);onNotice("邀请链接已复制，只能用一次");}catch{onNotice("复制失败，请手动复制链接");}}
+  async function shareInvite(){const url=await createInvite();if(!url)return;const canShare=typeof navigator.share==="function";try{if(canShare)await navigator.share({title:`加入${circle.name}`,text:circle.tagline,url});else await navigator.clipboard.writeText(url);}catch{return;}onNotice(canShare?"邀请已经交给系统分享":"邀请链接已复制，可以粘贴到微信");}
   return <Modal onClose={onClose} label={`邀请加入${circle.name}`}><div className="sheet-heading"><Pill color={circle.color}>{circle.joining === "approval" ? "加入需审批" : "受邀可直接加入"}</Pill><h2>邀请一个认识的人，加入 {circle.name}</h2><p>邀请链接 7 天有效、仅可使用一次。</p></div><div className="invite-tabs"><button className={method === "link" ? "active" : ""} onClick={() => setMethod("link")}>邀请链接</button><button className={method === "poster" ? "active" : ""} onClick={() => setMethod("poster")}>微信邀请图</button></div>{method === "link" ? <div className="invite-link"><span>7 天有效 · 仅可使用 1 次</span><b>{inviteUrl||"点击下方按钮生成安全邀请链接"}</b><button disabled={creating} onClick={copyInvite}>{creating?"正在生成…":inviteUrl?"复制链接":"生成并复制"}</button></div> : <div className={`mini-invite-poster hero-${circle.color}`}><div className={`camp-flag flag-${circle.color}`}>{circle.short}</div><span>来自圈内伙伴的邀请</span><h3>来 {circle.name}<br/>看看我们还能怎样互相帮助</h3><p>可以问，也可以拒绝。</p><div className="mini-code">▦</div></div>}<div className="invite-checklist"><b>受邀者会先看到</b><span>✓ 圈子介绍与运行方式</span><span>✓ 什么会被记录、谁能看见</span><span>✓ 可以拒绝具体请求，也可以退出</span></div><button className="primary-button" disabled={creating} onClick={shareInvite}>{method === "link" ? "分享邀请" : "分享邀请图与链接"}</button></Modal>;
 }
 

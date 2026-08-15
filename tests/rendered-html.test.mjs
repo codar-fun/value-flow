@@ -133,6 +133,17 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /setCreateSession/);
   // Required fields live on step 1; don't let people reach step 4 to find out.
   assert.match(page, /const blocked = step === 1/);
+  // A write that succeeded must never be reported as a failure just because
+  // the follow-up refetch failed — that is what makes people retry, and on the
+  // composer path a retry writes a second ledger entry.
+  assert.match(page, /async function syncAfterWrite/);
+  assert.doesNotMatch(page, /await refreshData\(\);\n\s*flash\(/);
+  // Invite links are single-use, so each copy mints a fresh one.
+  assert.doesNotMatch(page, /inviteUrl\|\|await createInvite/);
+  // Approve/decline can't be double-tapped into two requests.
+  assert.match(page, /disabled=\{busy\}/);
+  // Sheets opened from inside another sheet return there.
+  assert.match(page, /openSubSheet/);
   // No seeded demo identities remain.
   assert.doesNotMatch(page, /"qiao"|"ashu"|"village"|"human"/);
   // Neo-brutalism: hard shadows and heavy borders.
