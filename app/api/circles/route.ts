@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       method: "POST",
       body: JSON.stringify({
         name: input.name!.trim(),
-        icon: (input.short?.trim() || "✨").slice(0, 2),
+        icon: Array.from(input.short?.trim() || "✨").slice(0, 2).join(""),
         color: colorFor(input.name!),
         currency: input.currency!.trim(),
         description: input.tagline?.trim() || "",

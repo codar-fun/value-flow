@@ -127,6 +127,12 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /listing\.status !== "active"/);
   // A backend outage is not a logout.
   assert.match(page, /loadFailed/);
+  // Reopening the create wizard after a success must start a blank form, not
+  // strand you on the previous success screen.
+  assert.match(page, /key=\{createSession\}/);
+  assert.match(page, /setCreateSession/);
+  // Required fields live on step 1; don't let people reach step 4 to find out.
+  assert.match(page, /const blocked = step === 1/);
   // No seeded demo identities remain.
   assert.doesNotMatch(page, /"qiao"|"ashu"|"village"|"human"/);
   // Neo-brutalism: hard shadows and heavy borders.

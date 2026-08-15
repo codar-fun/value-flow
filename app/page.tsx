@@ -214,6 +214,7 @@ export default function Home() {
   // A failed bootstrap used to fall through to the login gate, so a 502 looked
   // exactly like being signed out and asked people to re-enter an OTP.
   const [loadFailed, setLoadFailed] = useState(false);
+  const [createSession, setCreateSession] = useState(0);
 
   activeDb = db; members = db.members; circles = db.circles; posts = buildPosts();
   const currentMemberId = db.currentMemberId;
@@ -370,6 +371,9 @@ export default function Home() {
   }
 
   function openCreateCircle() {
+    // Bumping the key remounts the wizard, so reopening it after a successful
+    // creation starts a blank form instead of the previous success screen.
+    setCreateSession((n) => n + 1);
     setView("create");
   }
 
@@ -410,9 +414,13 @@ export default function Home() {
         {view !== "about" && view !== "create" && <nav className="circle-switcher" aria-label="切换动态范围"><button className={`all-switch ${feedCircleId === "all" && view === "feed" ? "selected" : ""}`} onClick={showAllCircles}><span className="circle-dot dot-all"/><span>全部圈子</span><b>{posts.length}</b></button>{circles.filter((item) => memberById(currentMemberId).circleIds.includes(item.id)).map((item) => { const account = accountFor(currentMemberId, item.id); return <button key={item.id} className={feedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><span className={`circle-dot dot-${item.color}`}/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>}
         <div className="view-content">
           {view === "about" && <AboutView onExplore={showAllCircles} onCreate={openCreateCircle} onCircle={(id) => selectCircle(id, "circle")}/>}
-          {view === "create" && <CreateCircleView onExit={() => setView("me")} onDone={async (input) => {
+          {view === "create" && <CreateCircleView key={createSession} onExit={() => setView("me")} onDone={async (input) => {
             const response=await fetch("/api/circles",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(input)}); const result=await response.json() as {error?:string};
-            if(!response.ok) throw new Error(result.error||"创建失败"); await refreshData(); flash(`${input.name}已经创建，可以邀请成员了`);
+            if(!response.ok) throw new Error(result.error||"创建失败");
+            // The circle exists from here on. A failed refetch must not surface
+            // as a failed creation, or the user retries and makes a duplicate.
+            try { await refreshData(); } catch { /* the next load picks it up */ }
+            flash(`${input.name}已经创建，可以邀请成员了`);
           }}/>} 
           {view === "feed" && <FeedView activeCircle={activeCircle} activeAccount={activeAccount} isAllCircles={feedCircleId === "all"} posts={feedPosts} filter={feedFilter} onSpeak={openComposer} onCircle={() => setView("circle")} onMe={() => setView("me")} onProfile={openProfile} onShare={() => setOverlay("share")} onFilter={() => setOverlay("feedFilter")} onPost={openPost}/>}
           {view === "discover" && <DiscoverView posts={discoverPosts} filter={discoverFilter} setFilter={setDiscoverFilter} openCircles={openCircles} onJoin={joinCircle} onSpeak={openComposer} onProfile={openProfile} onShare={() => setOverlay("share")} onPost={openPost}/>}
@@ -948,13 +956,18 @@ function CreateCircleView({ onExit, onDone }: { onExit: () => void; onDone: (inp
   const steps = ["圈子身份", "互助设置", "成员与边界", "预览确认"];
   const unit = currency || "额度";
   const ruleList = rules.split("\n").map((line) => line.trim()).filter(Boolean);
+  // Name and unit are the only things loop requires. They live on step 1, so
+  // catch them there rather than letting someone fill in three more screens
+  // and get turned away at the end.
+  const missing = !name.trim() ? "请先填写圈子名称" : !currency.trim() ? "请先给互助额度起个名字" : "";
+  const blocked = step === 1 && missing !== "";
 
   if (saved) return <section className="create-success"><div className="success-burst">✓</div><Pill color="green">圈子已创建 · READY</Pill><h2>{name}<br/>准备好了。</h2><p>成员关系、初始账户和圈子规则已经保存。回到圈子后，可以生成一条真实的限时邀请链接。</p><div className="created-passport"><Character text={short || "圈"} color="green" variant="wave"/><div><span>新的圈子</span><h3>{name}</h3><p>{currency} · {joining === "direct" ? "受邀直接加入" : "管理员审批"}</p></div><b>已创建</b></div><div className="create-actions"><button className="primary-button" onClick={onExit}>回到我的圈子</button></div></section>;
 
   return <section className="create-page">
     <div className="create-intro"><div><Pill color="green">任何人都可以创建</Pill><h2>给一段真实关系，<br/>画出清楚的边界。</h2><p>圈子不是一种新产品，而是一组独立的成员、规则和互助账户。</p></div><button onClick={onExit}>暂时退出</button></div>
 
-    <nav className="create-progress" aria-label="创建圈子步骤">{steps.map((label, index) => <button key={label} className={step === index + 1 ? "active" : step > index + 1 ? "done" : ""} onClick={() => setStep(index + 1)}><b>{step > index + 1 ? "✓" : `0${index + 1}`}</b><span>{label}</span></button>)}</nav>
+    <nav className="create-progress" aria-label="创建圈子步骤">{steps.map((label, index) => <button key={label} className={step === index + 1 ? "active" : step > index + 1 ? "done" : ""} disabled={index > 0 && missing !== ""} onClick={() => setStep(index + 1)}><b>{step > index + 1 ? "✓" : `0${index + 1}`}</b><span>{label}</span></button>)}</nav>
 
     <div className="create-panel">
       {step === 1 && <><div className="create-heading"><span>STEP 01 · IDENTITY</span><h2>这个圈子，连接着谁？</h2><p>先写清楚共同场景，不需要把它包装成一个宏大的社区。</p></div><div className="create-form-grid"><label className="wide"><span>圈子名称</span><input value={name} maxLength={40} placeholder="例如：周末手作营地" onChange={(event) => setName(event.target.value)}/></label><label><span>地图上的简称</span><input maxLength={2} value={short} placeholder="作" onChange={(event) => setShort(event.target.value)}/></label><label><span>互助额度名称</span><input value={currency} maxLength={20} placeholder="例如：泡泡" onChange={(event) => setCurrency(event.target.value)}/></label><label className="wide"><span>一句话介绍</span><textarea value={tagline} maxLength={120} placeholder="一起做东西，也一起把工具、经验和时间分享出来。" onChange={(event) => setTagline(event.target.value)}/></label></div></>}
@@ -965,7 +978,7 @@ function CreateCircleView({ onExit, onDone }: { onExit: () => void; onDone: (inp
 
       {step === 4 && <><div className="create-heading"><span>STEP 04 · REVIEW</span><h2>邀请别人之前，先完整看一遍。</h2><p>这张预览只展示建圈所需的最小规则；创建后仍可以在「圈子设置」里继续修改。</p></div><article className="circle-draft-preview"><header><div className="draft-flag"><span>{short || "圈"}</span></div><div><Pill color="cream">新圈预览</Pill><h2>{name || "未命名圈子"}</h2><p>{tagline || "还没有写一句话介绍"}</p></div></header><div className="draft-summary"><div><span>互助额度</span><b>{currency || "未命名"}</b><small>互助账户 · 不兑换人民币</small></div><div><span>加入方式</span><b>{joining === "direct" ? "受邀直接加入" : "管理员审批"}</b><small>{allowNegative ? "允许负余额" : "必须先贡献才能支取"}</small></div><div><span>第一项参考</span><b>{referenceName || "暂未设置"}</b><small>{referenceValue}</small></div></div><ul><li>只记录已经完成的互助</li>{requireConfirmation ? <li>记录需要另一方确认后才入账</li> : <li>任一方记录即入账，另一方可事后纠正</li>}{allowRejectCorrect && <li>允许拒绝或更正记录，额度自动重算</li>}{ruleList.map((rule) => <li key={rule}>{rule}</li>)}</ul><footer><span>可以开口，也可以拒绝。</span><b>NO PRESSURE · NO RANKING</b></footer></article>{error && <div className="review-warning"><b>还没有创建成功</b><p>{error}</p></div>}</>}
 
-      <div className="create-footer"><button className="secondary-button" onClick={() => step === 1 ? onExit() : setStep(step - 1)}>{step === 1 ? "取消" : "← 上一步"}</button>{step < 4 ? <button className="primary-button" onClick={() => setStep(step + 1)}>继续：{steps[step]} →</button> : <button className="primary-button" disabled={saving} onClick={async () => { try { setSaving(true); setError(""); await onDone({ name: name.trim(), short, currency: currency.trim(), tagline, joining, allowNegative, requireConfirmation, allowRejectCorrect, references: referenceName.trim() ? [{ name: referenceName.trim(), value: referenceValue.trim(), note: "" }] : [], rules: ruleList }); setSaved(true); } catch(error) { setError(error instanceof Error ? error.message : "创建失败"); } finally { setSaving(false); } }}>{saving ? "正在创建…" : "创建圈子"}</button>}</div>
+      <div className="create-footer">{blocked && <p className="step-hint">{missing}</p>}<button className="secondary-button" onClick={() => step === 1 ? onExit() : setStep(step - 1)}>{step === 1 ? "取消" : "← 上一步"}</button>{step < 4 ? <button className="primary-button" disabled={blocked} onClick={() => setStep(step + 1)}>继续：{steps[step]} →</button> : <button className="primary-button" disabled={saving} onClick={async () => { try { setSaving(true); setError(""); await onDone({ name: name.trim(), short, currency: currency.trim(), tagline, joining, allowNegative, requireConfirmation, allowRejectCorrect, references: referenceName.trim() ? [{ name: referenceName.trim(), value: referenceValue.trim(), note: "" }] : [], rules: ruleList }); setSaved(true); } catch(error) { setError(error instanceof Error ? error.message : "创建失败"); } finally { setSaving(false); } }}>{saving ? "正在创建…" : "创建圈子"}</button>}</div>
     </div>
   </section>;
 }
