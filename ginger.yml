@@ -1,0 +1,52 @@
+# flow-circle —— 2026-08-02 从 sg.sola.day 迁到 homepod。
+# 目录名是 community-currency，服务名是 flow-circle，注意别对错。
+# 镜像仓库从 ghcr.io 换成自建的 yatch（home-registry.sola.day）。
+
+service: flow-circle
+image: home-registry.sola.day/sola/flow-circle
+
+runner: nomad
+egress: traefik
+
+servers:
+  web:
+    hosts: [homepod.sola.day]
+    primary: true
+
+# 自建 registry（yatch）。2026-08-02 起不再经 ghcr。
+registry:
+  server: home-registry.sola.day
+  username: sola
+  password: YATCH_TOKEN
+
+proxy:
+  hosts: [flow.sola.day]
+  app_port: 3000
+  ssl: true
+  health_check_path: /api/health
+
+ssh:
+  user: ubuntu                # homepod 上 ubuntu 在 docker 组，且能直接调 Nomad
+
+# Build natively on the amd64 target host (avoids slow QEMU cross-builds).
+builder:
+  arch: amd64
+  remote: ssh://ubuntu@homepod
+
+env:
+  PORT: "3000"
+  # The frontend proxies loop-backend server-side; this is the default anyway.
+  LOOP_API_BASE: https://loop-api.sola.day/api
+
+# homepod 没有开 Nomad 内存超售（memory_oversubscription = false），
+# memory_max 不会生效，所以直接按实际需要预留。
+resources:
+  cpu: 100
+  memory: 512
+
+retain_containers: 5
+
+secrets:
+  load: [.env.production]
+  inject:
+    - YATCH_TOKEN

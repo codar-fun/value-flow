@@ -1,26 +1,102 @@
-import { bodyJson, ensureDatabase, id, json, resolveCurrentMember, runtimeEnv } from "../../../db/runtime";
-import type { AssistantDraft } from "../assistant/draft/route";
+import { withLoop } from "@/app/lib/loop";
 
-async function isMember(db:D1Database,circleId:string,memberId:string){return Boolean(await db.prepare("SELECT 1 ok FROM memberships WHERE circle_id=? AND member_id=? AND status='active'").bind(circleId,memberId).first());}
+// POST /api/records — the composer's single write endpoint. `intent` decides
+// which loop-backend endpoint the entry lands in; loop keeps them in three
+// separate resources (aid records / listings / good cards).
+export type ComposeInput =
+  | {
+      intent: "record";
+      circleId: string;
+      providerId: string;
+      receiverId: string;
+      amount: number;
+      title?: string;
+      story?: string;
+      visibility?: "public" | "mystery" | "private";
+      tags?: string[];
+    }
+  | {
+      intent: "card";
+      circleId: string;
+      toId: string;
+      story: string;
+      visibility?: "cross-circle" | "hidden";
+    }
+  | {
+      intent: "need" | "offer";
+      title: string;
+      detail?: string;
+      circleIds: string[];
+      visibility?: "circle" | "cross-circle";
+      location?: string;
+      time?: string;
+      reference?: string;
+      tags?: string[];
+    };
+
 export async function POST(request: Request) {
-  try {
-    const {draft}=await bodyJson<{draft:AssistantDraft}>(request); const db=runtimeEnv().DB; await ensureDatabase(db); const me=await resolveCurrentMember(request,db); const now=Date.now(); const fields=draft.fields ?? {};
-    const circleId=String(fields.circleId ?? (Array.isArray(fields.circleIds) ? fields.circleIds[0] : "")); if(!circleId || !await isMember(db,circleId,me)) return json({error:"你不能向这个圈子写入记录。"},{status:403});
-    if(draft.intent === "need" || draft.intent === "offer") {
-      const recordId=id("l"); const circleIds=Array.isArray(fields.circleIds) ? fields.circleIds.map(String) : [circleId];
-      await db.batch([db.prepare("INSERT INTO listings (id,member_id,type,title,detail,circle_ids_json,visibility,location,time,reference,tags_json,status,nearby,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(recordId,me,draft.intent,draft.title,draft.detail,JSON.stringify(circleIds),String(fields.visibility ?? "circle"),String(fields.location ?? ""),String(fields.time ?? ""),String(fields.reference ?? ""),JSON.stringify(fields.tags ?? []),"active",0,now),db.prepare("INSERT INTO activities (source,source_id,circle_id,created_at) VALUES ('listing',?,?,?)").bind(recordId,circleId,now)]);
-      return json({ok:true,id:recordId},{status:201});
+  const input = (await request.json().catch(() => null)) as ComposeInput | null;
+  if (!input?.intent) return Response.json({ error: "缺少内容" }, { status: 400 });
+
+  return withLoop(request, async (token, call) => {
+    if (!token) return Response.json({ error: "未登录" }, { status: 401 });
+
+    let res: Response;
+
+    if (input.intent === "record") {
+      if (!input.circleId || !input.providerId || !input.receiverId)
+        return Response.json({ error: "请选择圈子和双方成员。" }, { status: 400 });
+      if (!Number.isInteger(input.amount) || input.amount <= 0)
+        return Response.json({ error: "额度必须是大于 0 的整数。" }, { status: 400 });
+
+      res = await call(`/circles/${input.circleId}/records`, {
+        method: "POST",
+        body: JSON.stringify({
+          provider_id: input.providerId,
+          receiver_id: input.receiverId,
+          amount: input.amount,
+          title: input.title,
+          story: input.story,
+          visibility: input.visibility ?? "public",
+          tags: input.tags ?? [],
+        }),
+      });
+    } else if (input.intent === "card") {
+      if (!input.toId || !input.story?.trim())
+        return Response.json({ error: "请选择成员并写下发生了什么。" }, { status: 400 });
+
+      res = await call("/good-cards", {
+        method: "POST",
+        body: JSON.stringify({
+          to_id: input.toId,
+          circle_id: input.circleId,
+          story: input.story,
+          visibility: input.visibility ?? "cross-circle",
+        }),
+      });
+    } else {
+      if (!input.title?.trim()) return Response.json({ error: "请写一个标题。" }, { status: 400 });
+      if (!input.circleIds?.length)
+        return Response.json({ error: "请至少选择一个圈子。" }, { status: 400 });
+
+      res = await call("/listings", {
+        method: "POST",
+        body: JSON.stringify({
+          type: input.intent,
+          title: input.title,
+          detail: input.detail ?? "",
+          circle_ids: input.circleIds,
+          visibility: input.visibility ?? "circle",
+          location: input.location ?? "",
+          time: input.time ?? "",
+          reference: input.reference ?? "",
+          tags: input.tags ?? [],
+        }),
+      });
     }
-    if(draft.intent === "card") {
-      const to=String(fields.toMemberId ?? ""); if(!to || !await isMember(db,circleId,to)) return json({error:"请选择同圈成员作为好人卡接收者。"},{status:400}); const recordId=id("c");
-      await db.batch([db.prepare("INSERT INTO good_cards (id,from_member_id,to_member_id,story,tags_json,visibility,circle_id,created_at) VALUES (?,?,?,?,?,?,?,?)").bind(recordId,me,to,draft.detail,JSON.stringify(fields.tags ?? []),String(fields.visibility ?? "cross-circle"),circleId,now),db.prepare("INSERT INTO activities (source,source_id,circle_id,created_at) VALUES ('card',?,?,?)").bind(recordId,circleId,now)]); return json({ok:true,id:recordId},{status:201});
-    }
-    const provider=String(fields.providerId ?? ""); const receiver=String(fields.receiverId ?? me); const amount=Math.trunc(Number(fields.amount)); if(!provider || !receiver || provider===receiver || !Number.isSafeInteger(amount) || amount<=0 || amount>100000) return json({error:"互助记录需要两位不同成员和大于 0 的整数额度。"},{status:400}); if(!await isMember(db,circleId,provider)||!await isMember(db,circleId,receiver)) return json({error:"交易双方都必须属于这个圈子。"},{status:400});
-    const recordId=id("t"); await db.batch([
-      db.prepare("INSERT INTO transactions (id,circle_id,provider_id,receiver_id,amount,title,story,happened_at,recorded_at,visibility,status,tags_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").bind(recordId,circleId,provider,receiver,amount,draft.title,draft.detail,now,now,String(fields.visibility ?? "public"),"confirmed",JSON.stringify(fields.tags ?? [])),
-      db.prepare("INSERT INTO accounts (id,circle_id,member_id,balance,given,received,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(circle_id,member_id) DO UPDATE SET balance=balance+excluded.balance,given=given+excluded.given,updated_at=excluded.updated_at").bind(`${circleId}:${provider}`,circleId,provider,amount,amount,0,now),
-      db.prepare("INSERT INTO accounts (id,circle_id,member_id,balance,given,received,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(circle_id,member_id) DO UPDATE SET balance=balance+excluded.balance,received=received+excluded.received,updated_at=excluded.updated_at").bind(`${circleId}:${receiver}`,circleId,receiver,-amount,0,amount,now),
-      db.prepare("INSERT INTO activities (source,source_id,circle_id,created_at) VALUES ('transaction',?,?,?)").bind(recordId,circleId,now),
-    ]); return json({ok:true,id:recordId},{status:201});
-  } catch(error){console.error(error); return json({error:error instanceof Error?error.message:"保存失败"},{status:500});}
+
+    const data = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
+    if (!res.ok) return Response.json({ error: data.error?.message || "保存失败" }, { status: res.status });
+    return Response.json({ ok: true, id: data.id }, { status: 201 });
+  });
 }

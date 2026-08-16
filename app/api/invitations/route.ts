@@ -1,3 +1,36 @@
-import { bodyJson, ensureDatabase, id, json, resolveCurrentMember, runtimeEnv } from "../../../db/runtime";
-async function sha(value:string){const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");}
-export async function POST(request:Request){try{const {circleId}=await bodyJson<{circleId:string}>(request);const db=runtimeEnv().DB;await ensureDatabase(db);const me=await resolveCurrentMember(request,db);const membership=await db.prepare("SELECT role FROM memberships WHERE circle_id=? AND member_id=? AND status='active'").bind(circleId,me).first<{role:string}>();if(!membership)return json({error:"你不是这个圈子的成员。"},{status:403});const token=crypto.randomUUID().replaceAll("-","");const inviteId=id("invite");const expiresAt=Date.now()+7*86400000;await db.prepare("INSERT INTO invitations (id,circle_id,created_by,token_hash,status,expires_at,max_uses,used_count,created_at) VALUES (?,?,?,?,?,?,?,?,?)").bind(inviteId,circleId,me,await sha(token),"active",expiresAt,1,0,Date.now()).run();const origin=new URL(request.url).origin;return json({id:inviteId,url:`${origin}/join/${token}`,expiresAt},{status:201});}catch(error){return json({error:error instanceof Error?error.message:"邀请创建失败"},{status:500});}}
+import { withLoop } from "@/app/lib/loop";
+
+// POST /api/invitations  {circleId} — mint an invite link via loop-backend and
+// return a full share URL (loop returns a relative /join/<token> path).
+export async function POST(request: Request) {
+  const { circleId } = (await request.json().catch(() => ({}))) as { circleId?: string };
+  if (!circleId) return Response.json({ error: "缺少圈子。" }, { status: 400 });
+
+  // TLS terminates at the proxy, so `request.url` is http:// internally —
+  // building the share link from it would hand people an insecure URL.
+  const url = new URL(request.url);
+  const proto = request.headers.get("x-forwarded-proto")?.split(",")[0].trim();
+  const host = request.headers.get("x-forwarded-host") || url.host;
+  const origin = `${proto || url.protocol.replace(":", "")}://${host}`;
+
+  return withLoop(request, async (token, call) => {
+    if (!token) return Response.json({ error: "未登录" }, { status: 401 });
+
+    const res = await call(`/circles/${circleId}/invitations`, { method: "POST" });
+    const data = (await res.json().catch(() => ({}))) as {
+      id?: string;
+      path?: string;
+      expires_at?: string;
+      error?: { message?: string };
+    };
+    if (!res.ok || !data.path)
+      return Response.json(
+        { error: data.error?.message || "邀请创建失败" },
+        // A 2xx that somehow carries no path is still a failure here — don't
+        // ship the error body under the upstream's success status.
+        { status: res.ok ? 502 : res.status || 500 },
+      );
+
+    return Response.json({ id: data.id, url: `${origin}${data.path}`, expiresAt: data.expires_at }, { status: 201 });
+  });
+}

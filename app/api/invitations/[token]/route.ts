@@ -1,3 +1,22 @@
-import { ensureDatabase, json, resolveCurrentMember, runtimeEnv } from "../../../../db/runtime";
-async function sha(value:string){const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");}
-export async function POST(request:Request,{params}:{params:Promise<{token:string}>}){try{const {token}=await params;const db=runtimeEnv().DB;await ensureDatabase(db);const me=await resolveCurrentMember(request,db);const invitation=await db.prepare("SELECT i.*,c.joining,c.name FROM invitations i JOIN circles c ON c.id=i.circle_id WHERE i.token_hash=?").bind(await sha(token)).first<Record<string,unknown>>();if(!invitation||invitation.status!=="active"||Number(invitation.expires_at)<Date.now()||Number(invitation.used_count)>=Number(invitation.max_uses))return json({error:"邀请已失效或已经被使用。"},{status:410});const circleId=String(invitation.circle_id);const existing=await db.prepare("SELECT status FROM memberships WHERE circle_id=? AND member_id=?").bind(circleId,me).first<{status:string}>();if(existing?.status==="active")return json({ok:true,status:"active",circleId,circleName:invitation.name});const status=invitation.joining==="approval"?"pending":"active",now=Date.now();const statements=[db.prepare("INSERT INTO memberships (id,circle_id,member_id,role,status,joined_at) VALUES (?,?,?,?,?,?) ON CONFLICT(circle_id,member_id) DO UPDATE SET status=excluded.status").bind(`${circleId}:${me}`,circleId,me,"member",status,now),db.prepare("UPDATE invitations SET used_count=used_count+1,status=CASE WHEN used_count+1>=max_uses THEN 'used' ELSE status END WHERE id=?").bind(invitation.id)];if(status==="active")statements.push(db.prepare("INSERT OR IGNORE INTO accounts (id,circle_id,member_id,balance,given,received,updated_at) VALUES (?,?,?,?,?,?,?)").bind(`${circleId}:${me}`,circleId,me,0,0,0,now));await db.batch(statements);return json({ok:true,status,circleId,circleName:invitation.name});}catch(error){return json({error:error instanceof Error?error.message:"加入失败"},{status:500});}}
+import { withLoop } from "@/app/lib/loop";
+
+// POST /api/invitations/:token — redeem an invite for the signed-in user.
+// (loop requires authentication, so the invitee must be logged in first.)
+export async function POST(request: Request, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
+
+  return withLoop(request, async (accessToken, call) => {
+    if (!accessToken) return Response.json({ error: "请先登录再加入圈子。" }, { status: 401 });
+
+    const res = await call(`/invitations/${encodeURIComponent(token)}/accept`, { method: "POST" });
+    const data = (await res.json().catch(() => ({}))) as {
+      status?: "active" | "pending";
+      circle?: { name?: string };
+      error?: { message?: string };
+    };
+    if (!res.ok)
+      return Response.json({ error: data.error?.message || "加入失败" }, { status: res.status || 410 });
+
+    return Response.json({ status: data.status || "active", circleName: data.circle?.name });
+  });
+}

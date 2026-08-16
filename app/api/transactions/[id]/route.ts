@@ -1,3 +1,34 @@
-import { bodyJson, ensureDatabase, json, resolveCurrentMember, runtimeEnv } from "../../../../db/runtime";
+import { withLoop } from "@/app/lib/loop";
 
-export async function PATCH(request:Request,{params}:{params:Promise<{id:string}>}){try{const {id}=await params;const input=await bodyJson<{action:"reject"|"correct";amount?:number;title?:string;story?:string;visibility?:string}>(request);const db=runtimeEnv().DB;await ensureDatabase(db);const me=await resolveCurrentMember(request,db);const row=await db.prepare("SELECT * FROM transactions WHERE id=?").bind(id).first<Record<string,unknown>>();if(!row)return json({error:"记录不存在。"},{status:404});if(me!==row.provider_id&&me!==row.receiver_id)return json({error:"只有当事人可以修改或拒绝。"},{status:403});if(row.status==="rejected")return json({error:"这条记录已经撤销。"},{status:409});const oldAmount=Number(row.amount),circleId=String(row.circle_id),provider=String(row.provider_id),receiver=String(row.receiver_id),now=Date.now();if(input.action==="reject"){await db.batch([db.prepare("UPDATE transactions SET status='rejected' WHERE id=?").bind(id),db.prepare("UPDATE accounts SET balance=balance-?,given=given-?,updated_at=? WHERE circle_id=? AND member_id=?").bind(oldAmount,oldAmount,now,circleId,provider),db.prepare("UPDATE accounts SET balance=balance+?,received=received-?,updated_at=? WHERE circle_id=? AND member_id=?").bind(oldAmount,oldAmount,now,circleId,receiver),db.prepare("DELETE FROM activities WHERE source='transaction' AND source_id=?").bind(id)]);return json({ok:true,status:"rejected"});}const amount=Math.trunc(Number(input.amount??oldAmount));if(!Number.isSafeInteger(amount)||amount<=0||amount>100000)return json({error:"额度必须是大于 0 的整数。"},{status:400});const delta=amount-oldAmount;await db.batch([db.prepare("UPDATE transactions SET amount=?,title=?,story=?,visibility=?,status='corrected' WHERE id=?").bind(amount,input.title??row.title,input.story??row.story,input.visibility??row.visibility,id),db.prepare("UPDATE accounts SET balance=balance+?,given=given+?,updated_at=? WHERE circle_id=? AND member_id=?").bind(delta,delta,now,circleId,provider),db.prepare("UPDATE accounts SET balance=balance-?,received=received+?,updated_at=? WHERE circle_id=? AND member_id=?").bind(delta,delta,now,circleId,receiver)]);return json({ok:true,status:"corrected"});}catch(error){return json({error:error instanceof Error?error.message:"更新失败"},{status:500});}}
+// PATCH /api/transactions/:id  {action:"reject"|"correct", amount?, title?, story?}
+// Maps to loop-backend's aid-record amend endpoint (requires the circle's
+// allow_reject_correct toggle; loop enforces the ledger reversal/delta).
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const input = (await request.json().catch(() => ({}))) as {
+    action?: "reject" | "correct";
+    amount?: number;
+    title?: string;
+    story?: string;
+  };
+  if (input.action !== "reject" && input.action !== "correct")
+    return Response.json({ error: "操作无效。" }, { status: 400 });
+
+  return withLoop(request, async (token, call) => {
+    if (!token) return Response.json({ error: "未登录" }, { status: 401 });
+
+    const res = await call(`/records/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        action: input.action,
+        amount: input.amount,
+        title: input.title,
+        story: input.story,
+      }),
+    });
+
+    const data = (await res.json().catch(() => ({}))) as { status?: string; error?: { message?: string } };
+    if (!res.ok) return Response.json({ error: data.error?.message || "更新失败" }, { status: res.status });
+    return Response.json({ ok: true, status: data.status });
+  });
+}

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function render() {
@@ -14,129 +14,139 @@ async function render() {
   );
 }
 
-test("renders the community currency demo shell", async () => {
+test("renders the flow circle shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /流动圈｜让帮助被记得/);
-  assert.match(html, /我的圈子动态/);
-  assert.match(html, /泡泡助手/);
-  assert.match(html, /说一句/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });
 
-test("includes the persistent backend and configurable assistant contract", async () => {
-  const [schema, runtime, records, assistant, environment, hosting] = await Promise.all([
-    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+test("loop-backend is the only data source and identity provider", async () => {
+  const [loop, runtime, bootstrap, records, profile] = await Promise.all([
+    readFile(new URL("../app/lib/loop.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/runtime.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/bootstrap/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/records/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/assistant/draft/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../.env.example", import.meta.url), "utf8"),
-    readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/profile/route.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(schema, /transactions/);
-  assert.match(schema, /invitations/);
-  assert.match(schema, /dataMigrations/);
-  assert.match(runtime, /ensureDatabase/);
-  assert.match(runtime, /legacy-demo-records-v1/);
-  assert.match(runtime, /authenticated/);
-  assert.match(records, /INSERT INTO activities/);
-  assert.match(assistant, /BUBBLE_ASSISTANT_API_URL/);
-  assert.match(environment, /BUBBLE_ASSISTANT_API_KEY=/);
-  assert.match(hosting, /"d1": "DB"/);
+
+  // Sessions live in httpOnly cookies, never in the client bundle.
+  assert.match(loop, /LOOP_API_BASE/);
+  assert.match(loop, /HttpOnly/);
+  assert.match(loop, /auth\/refresh/);
+  // The adapter maps loop's payload; it owns no storage of its own.
+  assert.match(runtime, /toAppDatabase/);
+  assert.match(runtime, /wechat_contact/);
+  assert.match(runtime, /circle_accounts/);
+  assert.match(bootstrap, /withLoop/);
+  // The composer's three intents land in three different loop resources.
+  assert.match(records, /\/circles\/\$\{input\.circleId\}\/records/);
+  assert.match(records, /\/good-cards/);
+  assert.match(records, /\/listings/);
+  assert.match(profile, /wechat_contact/);
 });
 
-test("keeps the confirmed product flows, handoff facts, and visual language in source", async () => {
-  const [page, data, css, readme, handoff, productDoc, dataDoc, designDoc] = await Promise.all([
+test("no AI assistant is wired up", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(page, /api\/assistant/);
+  assert.doesNotMatch(page, /BUBBLE_ASSISTANT/);
+  await assert.rejects(readFile(new URL("../app/api/assistant/draft/route.ts", import.meta.url), "utf8"));
+});
+
+test("keeps the confirmed product flows and visual language in source", async () => {
+  const [page, types, css, readme] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/demo-data.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/types.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../README.md", import.meta.url), "utf8"),
-    readFile(new URL("../docs/开发交付说明.md", import.meta.url), "utf8"),
-    readFile(new URL("../docs/产品需求文档：运营流程.md", import.meta.url), "utf8"),
-    readFile(new URL("../docs/静态演示数据库.md", import.meta.url), "utf8"),
-    readFile(new URL("../docs/静态演示设计系统.md", import.meta.url), "utf8"),
   ]);
 
-  assert.match(data, /俏也交换圈/);
-  assert.match(data, /做人共学/);
-  assert.match(data, /龙潭生活营地/);
-  assert.match(data, /goodCards/);
-  assert.match(data, /transactions/);
-  assert.match(data, /listings/);
+  // The four record types, each with its own form.
   assert.match(page, /记一笔/);
   assert.match(page, /我想要/);
   assert.match(page, /我可以给/);
   assert.match(page, /好人卡/);
-  assert.match(page, /FLOW CIRCLE/);
-  assert.match(page, /AboutView/);
-  assert.match(page, /CreateCircleView/);
-  assert.match(page, /圈子身份/);
-  assert.match(page, /互助设置/);
-  assert.match(page, /第一次来/);
-  assert.match(page, /signin-with-chatgpt/);
-  assert.match(page, /成员与边界/);
-  assert.match(page, /预览确认/);
-  assert.match(page, /不与人民币兑换/);
-  assert.match(page, /关于流动圈/);
-  assert.match(page, /让帮助被记得/);
-  assert.match(page, /setView\("about"\)/);
-  assert.match(page, /圈子介绍/);
-  assert.match(page, /全部成员/);
-  assert.match(page, /查看规则/);
-  assert.match(page, /邀请成员/);
-  assert.match(page, /DiscoverFilter/);
-  assert.match(page, /feedCircleId/);
-  assert.match(page, /post\.circleId !== feedCircleId/);
-  assert.match(page, /全部圈子/);
-  assert.match(page, /EVENTS IN THIS CIRCLE/);
-  assert.doesNotMatch(page, /LIU DONG/);
-  assert.match(css, /radial-gradient/);
-  assert.match(css, /--yellow/);
-  assert.match(css, /face-spike/);
-  assert.match(css, /detail-hero/);
-  assert.match(css, /profile-tabs/);
-  assert.match(css, /about-hero/);
-  assert.match(css, /brand-mini/);
-  assert.match(css, /create-progress/);
-  assert.match(css, /circle-draft-preview/);
-  assert.match(readme, /当前状态：第一版可运行网页已发布/);
-  assert.match(readme, /静态 Demo 还在吗/);
-  assert.match(readme, /文档权威顺序/);
-  assert.match(handoff, /版本 9 已发布/);
-  assert.match(handoff, /匿名访问者可能共用同一身份/);
-  assert.match(handoff, /只作为首次初始化的种子数据/);
-  assert.match(handoff, /当前运行版/);
-  assert.match(productDoc, /仅当事人.*不进入圈内公共动态/);
-  assert.match(productDoc, /整体概念页/);
-  assert.match(productDoc, /创建圈子页/);
-  assert.match(dataDoc, /完整虚构好人卡/);
-  assert.match(dataDoc, /静态策展层/);
-  assert.match(designDoc, /FLOW CIRCLE/);
-});
+  // Three-tier visibility for aid records, per the product doc.
+  assert.match(page, /神秘记录/);
+  assert.match(page, /仅当事人/);
+  // The mutual-aid toggles and the circle agreements loop stores in settings.
+  assert.match(page, /允许负余额/);
+  assert.match(page, /记录需要对方确认/);
+  assert.match(page, /允许拒绝 \/ 更正/);
+  assert.match(page, /CircleSettingsSheet/);
+  assert.match(page, /EditProfileSheet/);
+  // Corrections are proposed, then resolved by the other party.
+  assert.match(page, /提议更正/);
+  assert.match(page, /resolveCorrection/);
+  // The owner's approval queue.
+  assert.match(page, /在等你放行/);
+  assert.match(page, /resolveRequest/);
+  // A listing can span several circles, so posts filter on all of them.
+  assert.match(page, /post\.circleIds\.includes/);
+  // Mystery records arrive already redacted; the client trusts that flag.
+  assert.match(page, /transaction\.redacted/);
+  assert.match(types, /CircleSettings/);
+  assert.match(types, /references/);
+  assert.match(types, /PendingCorrection/);
+  assert.match(types, /JoinRequest/);
 
-test("keeps local links in the developer handoff path valid", async () => {
-  const documents = [
-    new URL("../README.md", import.meta.url),
-    new URL("../docs/开发交付说明.md", import.meta.url),
-    new URL("../docs/产品需求文档：运营流程.md", import.meta.url),
-    new URL("../docs/静态演示数据库.md", import.meta.url),
-    new URL("../docs/静态演示设计系统.md", import.meta.url),
-  ];
+  // ── membership has a way out, and applicants can see they're waiting ──
+  // A pending applicant used to get circles:[] and no explanation, while the
+  // discover page kept offering the circle they'd already applied to.
+  assert.match(page, /pendingCircles/);
+  assert.match(page, /withdrawRequest/);
+  assert.match(page, /等圈主放行|等圈主确认/);
+  assert.match(page, /撤回申请/);
+  // Leaving is promised on the invite page; it must exist, and say why not.
+  assert.match(page, /leaveCircle/);
+  assert.match(page, /transferOwner/);
+  assert.match(page, /退出这个圈子/);
+  assert.match(page, /转让圈主/);
+  // Notifications: loop writes them, the client renders the copy.
+  assert.match(page, /NotificationsSheet/);
+  assert.match(page, /markNotificationsRead/);
+  assert.match(types, /Notification/);
 
-  for (const documentUrl of documents) {
-    const markdown = await readFile(documentUrl, "utf8");
-    const links = [...markdown.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)].map((match) => match[1]);
-
-    for (const link of links) {
-      if (/^(?:https?:|mailto:|#)/i.test(link)) continue;
-      const [relativePath] = decodeURIComponent(link).split("#");
-      await assert.doesNotReject(
-        access(new URL(relativePath, documentUrl)),
-        `Missing local link ${link} in ${documentUrl.pathname}`,
-      );
-    }
-  }
+  // ── regression guards for bugs found walking the live site ──
+  // The feed is derived from `db`; leaving it out of the deps froze the feed
+  // after every mutation while the toast claimed success.
+  assert.match(page, /\}\), \[db, feedFilter, feedCircleId\]\)/);
+  assert.match(page, /\}\), \[db, discoverFilter\]\)/);
+  // An unresolved id must not borrow a real person's name.
+  assert.match(page, /UNKNOWN_MEMBER/);
+  assert.doesNotMatch(page, /members\.find\(\(member\) => member\.id === id\) \?\? members\[0\]/);
+  // Post ids survive a refetch (the activity array is re-indexed each load).
+  assert.match(page, /const postId = `\$\{activity\.source\}:\$\{activity\.sourceId\}`/);
+  // Only the counterparty may confirm — loop 403s the record's own creator.
+  assert.match(page, /transaction\.createdById !== activeDb\.currentMemberId/);
+  // Paused/closed listings leave the feed.
+  assert.match(page, /listing\.status !== "active"/);
+  // A backend outage is not a logout.
+  assert.match(page, /loadFailed/);
+  // Reopening the create wizard after a success must start a blank form, not
+  // strand you on the previous success screen.
+  assert.match(page, /key=\{createSession\}/);
+  assert.match(page, /setCreateSession/);
+  // Required fields live on step 1; don't let people reach step 4 to find out.
+  assert.match(page, /const blocked = step === 1/);
+  // A write that succeeded must never be reported as a failure just because
+  // the follow-up refetch failed — that is what makes people retry, and on the
+  // composer path a retry writes a second ledger entry.
+  assert.match(page, /async function syncAfterWrite/);
+  assert.doesNotMatch(page, /await refreshData\(\);\n\s*flash\(/);
+  // Invite links are single-use, so each copy mints a fresh one.
+  assert.doesNotMatch(page, /inviteUrl\|\|await createInvite/);
+  // Approve/decline can't be double-tapped into two requests.
+  assert.match(page, /disabled=\{busy\}/);
+  // Sheets opened from inside another sheet return there.
+  assert.match(page, /openSubSheet/);
+  // No seeded demo identities remain.
+  assert.doesNotMatch(page, /"qiao"|"ashu"|"village"|"human"/);
+  // Neo-brutalism: hard shadows and heavy borders.
+  assert.match(css, /box-shadow: \d+px \d+px 0/);
+  assert.match(readme, /loop-backend/);
 });
