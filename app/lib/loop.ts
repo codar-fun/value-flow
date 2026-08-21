@@ -9,20 +9,29 @@
 // Access tokens are used directly until near expiry, then a single refresh
 // mints a new pair. Cookies are set on the outgoing response.
 
-// `process` is not defined in the Cloudflare Worker runtime — guard the access
-// (and use bracket lookup so Next's build doesn't statically inline it) so the
-// module can't crash at load time. Defaults to production.
-export const LOOP_API_BASE = ((): string => {
+// `process` is not defined in the Cloudflare Worker runtime. Read request-time
+// Worker env first, then fall back to process.env for the Node dev server.
+export function runtimeEnv(name: string): string | undefined {
   try {
-    if (typeof process !== "undefined" && process.env) {
-      const v = (process.env as Record<string, string | undefined>)["LOOP_API_BASE"];
-      if (v) return v.replace(/\/$/, "");
-    }
+    if (typeof process !== "undefined" && process.env) return (process.env as Record<string, string | undefined>)[name];
   } catch {
     /* ignore */
   }
-  return "https://loop-api.sola.day/api";
-})();
+  const workerEnv = (globalThis as typeof globalThis & { __FLOW_CIRCLE_ENV?: Record<string, unknown> }).__FLOW_CIRCLE_ENV;
+  const value = workerEnv?.[name];
+  return typeof value === "string" ? value : undefined;
+}
+
+function resolveLoopApiBase(): string {
+  return (runtimeEnv("LOOP_API_BASE") || "https://loop-api.sola.day/api").replace(/\/$/, "");
+}
+
+// Kept for callers and tests that need the configured value at module load;
+// request paths use loopApiBase() so Worker env changes are respected.
+export const LOOP_API_BASE = resolveLoopApiBase();
+export function loopApiBase(): string {
+  return resolveLoopApiBase();
+}
 
 const RT = "loop_rt";
 const AT = "loop_at";
@@ -86,7 +95,7 @@ type Resolved = { accessToken: string | null; cookies: Cookie[] };
 const inFlight = new Map<string, Promise<Resolved>>();
 
 async function refresh(rt: string): Promise<Resolved> {
-  const res = await fetch(`${LOOP_API_BASE}/auth/refresh`, {
+  const res = await fetch(`${loopApiBase()}/auth/refresh`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ refresh_token: rt }),
@@ -145,7 +154,7 @@ export async function withLoop(
   const { accessToken, cookies } = await ensureAccessToken(request);
 
   const call: LoopCall = (path, init = {}) =>
-    fetch(`${LOOP_API_BASE}${path}`, {
+    fetch(`${loopApiBase()}${path}`, {
       ...init,
       headers: {
         "content-type": "application/json",

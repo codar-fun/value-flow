@@ -17,6 +17,7 @@ import type {
   Notification,
   Transaction,
 } from "../app/types";
+import { abstractAvatarFor, isAvatarVariant } from "../app/lib/avatar";
 
 export type AppDatabase = {
   members: Member[];
@@ -160,7 +161,6 @@ type LoopNotification = {
 // ─── presentation-only derivations ──────────────────────────────────────────
 
 const COLORS: Color[] = ["yellow", "pink", "blue", "green", "coral"];
-const AVATARS: AvatarVariant[] = ["crop", "wave", "cap", "bob", "spike", "curl", "bun", "leaf"];
 
 // The hexes CC writes when creating a circle (see app/api/circles/route.ts),
 // mapped back to the CSS colour name so a circle keeps the look it was made with.
@@ -185,11 +185,11 @@ function circleColor(c: LoopCircle): Color {
   return HEX_TO_COLOR[hex] ?? colorFor(c.id);
 }
 
-// loop's `avatar` is a free-form string; honour it when it names one of our
-// face variants, otherwise pick a stable one from the id.
+// loop's `avatar` is a free-form string. A new account has no avatar yet, so it
+// receives one of eight stable abstract marks; a later face customisation is
+// stored in the same field and validated before it reaches the UI.
 function avatarFor(a: LoopAccount): AvatarVariant {
-  const named = AVATARS.find((v) => v === a.avatar);
-  return named ?? AVATARS[hash(a.id) % AVATARS.length];
+  return isAvatarVariant(a.avatar) ? a.avatar : abstractAvatarFor(a.id);
 }
 
 const firstChar = (s: string | null | undefined) => (s && s.length ? Array.from(s)[0] : "•");
@@ -273,7 +273,15 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     circleIds: circleIdsByMember.get(a.id) ?? [],
   });
 
-  const members: Member[] = loop.members.map(toMember);
+  // Pending applicants are not active circle members yet, so loop keeps them
+  // in join_requests rather than members. Their identities still need to be
+  // available to notifications; otherwise the same person appears as
+  // "未知成员" in one surface and with a real name in the approval queue.
+  const memberAccounts = new Map<string, LoopAccount>(loop.members.map((account) => [account.id, account]));
+  for (const request of loop.join_requests ?? []) {
+    if (!memberAccounts.has(request.account.id)) memberAccounts.set(request.account.id, request.account);
+  }
+  const members: Member[] = Array.from(memberAccounts.values()).map(toMember);
   // The signed-in user may belong to no circles yet (so isn't in `members`);
   // the UI always dereferences them, so make sure they're present.
   if (!members.some((m) => m.id === loop.user.id)) members.unshift(toMember(loop.user));

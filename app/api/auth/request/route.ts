@@ -1,4 +1,4 @@
-import { LOOP_API_BASE } from "@/app/lib/loop";
+import { loopApiBase } from "@/app/lib/loop";
 
 // POST /api/auth/request  {email} — ask loop-backend to email a login code.
 export async function POST(request: Request) {
@@ -6,7 +6,7 @@ export async function POST(request: Request) {
     const { email } = (await request.json()) as { email?: string };
     if (!email?.trim()) return Response.json({ error: "请填写邮箱" }, { status: 400 });
 
-    const res = await fetch(`${LOOP_API_BASE}/auth/otp/request`, {
+    const res = await fetch(`${loopApiBase()}/auth/otp/request`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: email.trim() }),

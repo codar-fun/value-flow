@@ -2,7 +2,18 @@
 // loop-backend field (see `db/runtime.ts` for the mapping) — the only derived
 // values are the two presentational enums below, which pick a CSS class.
 
-export type AvatarVariant = "crop" | "wave" | "cap" | "bob" | "spike" | "curl" | "bun" | "leaf";
+export type AbstractAvatarVariant = "crop" | "wave" | "cap" | "bob" | "spike" | "curl" | "bun" | "leaf";
+export type AvatarSkin = "ivory" | "cream" | "apricot" | "gold";
+export type AvatarFaceShape = "round" | "oval" | "soft";
+export type AvatarHair = "short" | "crop" | "fringe" | "bob" | "wave" | "curl" | "center" | "shag" | "bun" | "undercut" | "long" | "longWave" | "ponytail" | "braid" | "halfUp" | "twinTail";
+export type AvatarHairColor = "ink" | "cocoa" | "chestnut" | "coral" | "auburn" | "blue" | "mint" | "plum";
+export type AvatarEyes = "dot" | "smile" | "wink" | "calm" | "bright" | "crescent" | "glance";
+export type AvatarGlasses = "none" | "round" | "oval" | "square" | "half";
+export type AvatarMouth = "smile" | "flat" | "open" | "grin" | "pout" | "tiny";
+export type AvatarAccessory = "none" | "dot" | "star" | "leaf" | "flower" | "clips" | "heart" | "moon" | "sparkle";
+export type LegacyFaceAvatar = `custom:${string}`;
+export type FaceAvatar = `custom2:${string}`;
+export type AvatarVariant = AbstractAvatarVariant | LegacyFaceAvatar | FaceAvatar;
 export type Color = "yellow" | "pink" | "blue" | "green" | "coral";
 
 export type Member = {

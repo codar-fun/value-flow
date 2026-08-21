@@ -1,4 +1,4 @@
-import { LOOP_API_BASE, attachCookies, sessionCookies } from "@/app/lib/loop";
+import { loopApiBase, attachCookies, sessionCookies } from "@/app/lib/loop";
 
 // POST /api/auth/verify  {email, code} — exchange the code for a session,
 // stored in httpOnly cookies. Returns {needs_profile, user}.
@@ -8,7 +8,7 @@ export async function POST(request: Request) {
     if (!email?.trim() || !code?.trim())
       return Response.json({ error: "请填写邮箱和验证码" }, { status: 400 });
 
-    const res = await fetch(`${LOOP_API_BASE}/auth/otp/verify`, {
+    const res = await fetch(`${loopApiBase()}/auth/otp/verify`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: email.trim(), code: code.trim() }),
