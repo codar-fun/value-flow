@@ -25,6 +25,7 @@
 - 页面通过 `GET /api/bootstrap` 获取当前用户可见的成员、圈子、账户、动态、通知和设置；
 - `db/runtime.ts` 只负责把 loop 数据转换成界面模型；
 - 正式域名由 `ginger.yml` 描述的现有生产服务发布，`LOOP_API_BASE` 指向生产 loop-backend。
+- `.openai/hosting.json` 是当前 Vinext 构建遗留的逻辑 binding 配置，不是本项目继续使用的发布目标。
 
 端点对照表见 loop-backend 仓库中的 `docs/community-currency-api-map.md`。
 
