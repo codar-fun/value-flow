@@ -1,0 +1,31 @@
+name: Deploy flow-circle
+
+on:
+  push:
+    branches: [wire-loop-backend]   # 改成你的主部署分支，比如 main
+  workflow_dispatch: {}             # 允许在 Actions 页面手动触发
+
+concurrency:
+  group: deploy-flow-circle
+  cancel-in-progress: false          # 部署不取消，避免和 ginger 的部署锁打架
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/jiangplus/ginger:latest
+      options: --entrypoint ""        # image's ENTRYPOINT is `ginger`; run plain shell steps instead
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH key for homepod
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HOMEPOD_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H homepod.sola.day >> ~/.ssh/known_hosts
+
+      - name: Deploy with ginger
+        env:
+          YATCH_TOKEN: ${{ secrets.YATCH_TOKEN }}
+        run: ginger deploy

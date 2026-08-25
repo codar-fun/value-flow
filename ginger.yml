@@ -1,9 +1,9 @@
 # flow-circle —— 2026-08-02 从 sg.sola.day 迁到 homepod。
 # 目录名是 community-currency，服务名是 flow-circle，注意别对错。
-# 镜像仓库从 ghcr.io 换成自建的 yatch（home-registry.sola.day）。
+# 镜像仓库从 ghcr.io 换成自建的 yatch（registry.sola.day，原名 home-registry.sola.day）。
 
 service: flow-circle
-image: home-registry.sola.day/sola/flow-circle
+image: registry.sola.day/sola/flow-circle
 
 runner: nomad
 egress: traefik
@@ -15,7 +15,7 @@ servers:
 
 # 自建 registry（yatch）。2026-08-02 起不再经 ghcr。
 registry:
-  server: home-registry.sola.day
+  server: registry.sola.day
   username: sola
   password: YATCH_TOKEN
 
