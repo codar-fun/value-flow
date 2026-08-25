@@ -20,21 +20,17 @@ jobs:
 
       - name: Set up SSH key for homepod
         run: |
-          echo "HOME=$HOME"
-          mkdir -p -m 700 ~/.ssh
-          echo "${{ secrets.HOMEPOD_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          printf 'Host homepod.sola.day\n  User ubuntu\n  IdentityFile ~/.ssh/id_ed25519\n  StrictHostKeyChecking accept-new\n  UserKnownHostsFile ~/.ssh/known_hosts\n' > ~/.ssh/config
-          chmod 600 ~/.ssh/config
-          cat ~/.ssh/config
-          ssh -vvv -o ConnectTimeout=10 homepod.sola.day true
+          # The container runs as root, but ssh resolves "~" via /etc/passwd
+          # (-> /root), not $HOME (/github/home) — write to /root/.ssh directly.
+          mkdir -p -m 700 /root/.ssh
+          echo "${{ secrets.HOMEPOD_SSH_KEY }}" > /root/.ssh/id_ed25519
+          chmod 600 /root/.ssh/id_ed25519
+          printf 'Host homepod.sola.day\n  User ubuntu\n  IdentityFile /root/.ssh/id_ed25519\n  StrictHostKeyChecking accept-new\n  UserKnownHostsFile /root/.ssh/known_hosts\n' > /root/.ssh/config
+          chmod 600 /root/.ssh/config
+          ssh -o ConnectTimeout=10 homepod.sola.day true
 
-      - name: Debug git state
-        run: |
-          pwd
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git rev-parse --show-toplevel
-          git rev-parse HEAD
+      - name: Trust the workspace for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Deploy with ginger
         env:
