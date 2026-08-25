@@ -1,0 +1,19 @@
+ginger.yml
+  s_48a3d075bd0133::t_cd66516cdeb4df 34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "52f8b7fc47ae49053fb084e5cef2e9cf9f9dd818",
+  "prompts": {},
+  "sessions": {
+    "s_48a3d075bd0133": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb01a44c-eda1-4b04-97da-246e51ecce9e",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
