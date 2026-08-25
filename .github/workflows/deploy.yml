@@ -15,24 +15,23 @@ jobs:
     container:
       image: ghcr.io/jiangplus/ginger:latest
       options: --entrypoint ""        # image's ENTRYPOINT is `ginger`; run plain shell steps instead
-      env:
-        # Actions sets HOME=/github/home, but the container runs as root and
-        # ssh(1) resolves "~" via /etc/passwd (-> /root), ignoring $HOME.
-        # ginger's own (Erlang) ssh client DOES respect $HOME. Force both to
-        # agree on /root so the same key/config file serves both.
-        HOME: /root
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up SSH key for homepod
         run: |
-          # The container runs as root, but ssh resolves "~" via /etc/passwd
-          # (-> /root), not $HOME (/github/home) — write to /root/.ssh directly.
-          mkdir -p -m 700 /root/.ssh
-          echo "${{ secrets.HOMEPOD_SSH_KEY }}" > /root/.ssh/id_ed25519
-          chmod 600 /root/.ssh/id_ed25519
-          printf 'Host homepod.sola.day\n  User ubuntu\n  IdentityFile /root/.ssh/id_ed25519\n  StrictHostKeyChecking accept-new\n  UserKnownHostsFile /root/.ssh/known_hosts\n' > /root/.ssh/config
-          chmod 600 /root/.ssh/config
+          # ssh(1) resolves "~" via /etc/passwd (-> /root, since the
+          # container runs as root) and ignores $HOME. Actions' own $HOME
+          # (/github/home) is a different directory, so write to both:
+          # ginger's Erlang ssh client honors $HOME, the ssh(1) binary
+          # docker buildx shells out to does not.
+          for dir in /root/.ssh "$HOME/.ssh"; do
+            mkdir -p -m 700 "$dir"
+            echo "${{ secrets.HOMEPOD_SSH_KEY }}" > "$dir/id_ed25519"
+            chmod 600 "$dir/id_ed25519"
+            printf 'Host homepod.sola.day\n  User ubuntu\n  IdentityFile %s/id_ed25519\n  StrictHostKeyChecking accept-new\n  UserKnownHostsFile %s/known_hosts\n' "$dir" "$dir" > "$dir/config"
+            chmod 600 "$dir/config"
+          done
           ssh -o ConnectTimeout=10 homepod.sola.day true
 
       - name: Trust the workspace for git
