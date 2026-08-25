@@ -25,6 +25,13 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H homepod.sola.day >> ~/.ssh/known_hosts
 
+      - name: Debug git state
+        run: |
+          pwd
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git rev-parse --show-toplevel
+          git rev-parse HEAD
+
       - name: Deploy with ginger
         env:
           YATCH_TOKEN: ${{ secrets.YATCH_TOKEN }}
