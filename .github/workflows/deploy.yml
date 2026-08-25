@@ -20,10 +20,12 @@ jobs:
 
       - name: Set up SSH key for homepod
         run: |
-          mkdir -p ~/.ssh
+          mkdir -p -m 700 ~/.ssh
           echo "${{ secrets.HOMEPOD_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H homepod.sola.day >> ~/.ssh/known_hosts
+          printf 'Host homepod.sola.day\n  User ubuntu\n  IdentityFile ~/.ssh/id_ed25519\n  StrictHostKeyChecking accept-new\n' > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+          ssh -o ConnectTimeout=10 homepod.sola.day true
 
       - name: Debug git state
         run: |
