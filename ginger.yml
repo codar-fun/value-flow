@@ -31,7 +31,7 @@ ssh:
 # Build natively on the amd64 target host (avoids slow QEMU cross-builds).
 builder:
   arch: amd64
-  remote: ssh://ubuntu@homepod
+  remote: ssh://ubuntu@homepod.sola.day
 
 env:
   PORT: "3000"
