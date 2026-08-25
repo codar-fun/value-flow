@@ -15,6 +15,12 @@ jobs:
     container:
       image: ghcr.io/jiangplus/ginger:latest
       options: --entrypoint ""        # image's ENTRYPOINT is `ginger`; run plain shell steps instead
+      env:
+        # Actions sets HOME=/github/home, but the container runs as root and
+        # ssh(1) resolves "~" via /etc/passwd (-> /root), ignoring $HOME.
+        # ginger's own (Erlang) ssh client DOES respect $HOME. Force both to
+        # agree on /root so the same key/config file serves both.
+        HOME: /root
     steps:
       - uses: actions/checkout@v4
 
