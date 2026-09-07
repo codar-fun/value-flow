@@ -96,14 +96,14 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /QRCode/);
   assert.match(page, /profile=/);
   assert.match(page, /listing\.visibility === "cross-circle"/);
-  assert.match(page, /圈内内容不会印在图上/);
-  assert.match(page, /复制个人链接/);
+  assert.match(page, /仅包含跨圈公开内容/);
+  assert.match(page, /复制链接/);
   assert.match(page, /PostShareSheet/);
   assert.match(page, /post=/);
-  assert.match(page, /链接不会绕过圈子权限/);
+  assert.match(page, /仅圈内成员可见/);
   assert.match(page, /onShare\(post\.id\)/);
   assert.match(page, /isLocalUrl/);
-  assert.match(page, /只能在这台电脑打开/);
+  assert.match(page, /仅这台电脑可打开/);
   assert.match(page, /character-mark/);
   // Corrections are proposed, then resolved by the other party.
   assert.match(page, /提议更正/);
@@ -139,7 +139,7 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // Leaving is promised on the invite page; it must exist, and say why not.
   assert.match(page, /leaveCircle/);
   assert.match(page, /transferOwner/);
-  assert.match(page, /退出这个圈子/);
+  assert.match(page, /退出圈子/);
   assert.match(page, /转让圈主/);
   assert.match(page, /确认转让圈主/);
   assert.match(page, /确认退出圈子/);
@@ -208,9 +208,9 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // Long names stay visible in the mobile header instead of being ellipsized.
   assert.match(css, /\.topbar h1 \{[^}]*white-space: normal/);
   // Empty filters, incomplete metadata and self-profile actions stay legible.
-  assert.match(page, /这里暂时没有符合条件的动态/);
+  assert.match(page, /暂时没有动态/);
   assert.match(page, /timeAndPlace/);
-  assert.match(page, /这是你自己的档案/);
+  assert.match(page, /onEditProfile/);
   // Modal escape and editable reference lists avoid browser-native dead ends.
   assert.match(page, /event\.key !== "Escape"/);
   assert.match(page, /removeReference/);
@@ -287,7 +287,8 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(css, /\.bell-button:hover \{ transform: translate\(-1px,-1px\); box-shadow: 2px 2px 0 rgba\(25,25,25,\.32\); \}/);
   // No seeded demo identities remain.
   assert.doesNotMatch(page, /"qiao"|"ashu"|"village"|"human"/);
-  // Neo-brutalism: hard shadows and heavy borders.
-  assert.match(css, /box-shadow: \d+px \d+px 0/);
+  // The refreshed visual language keeps the four colors with softer surfaces.
+  assert.match(css, /--line: 1\.5px/);
+  assert.match(css, /--shadow: 0 12px 30px rgba/);
   assert.match(readme, /loop-backend/);
 });
