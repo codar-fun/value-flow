@@ -897,6 +897,18 @@ function Modal({ children, onClose, label, wide = false }: { children: React.Rea
   return <div className="modal-backdrop" onMouseDown={onClose}><section ref={dialogRef} className={`sheet ${wide ? "sheet-wide" : ""}`} role="dialog" aria-modal="true" aria-label={label} onMouseDown={(event) => event.stopPropagation()}><button className="close-button" onClick={onClose} aria-label="关闭">×</button>{children}</section></div>;
 }
 
+function SheetHeading({ eyebrow, title, description, meta, color = "cream", visual }: { eyebrow: string; title: string; description?: React.ReactNode; meta?: React.ReactNode; color?: string; visual?: React.ReactNode }) {
+  return <header className={`sheet-heading ${visual ? "sheet-heading-with-visual" : ""}`}>
+    {visual && <div className="sheet-heading-visual">{visual}</div>}
+    <div className="sheet-heading-copy">
+      <Pill color={color}>{eyebrow}</Pill>
+      <h2>{title}</h2>
+      {description && <p>{description}</p>}
+      {meta && <small>{meta}</small>}
+    </div>
+  </header>;
+}
+
 // The composer. Four intents, each a plain form: pick who/which circle, fill in
 // the fields loop-backend stores, review the draft, publish. (The natural-
 // language "泡泡助手" path is not wired up — see docs; nothing here calls an LLM.)
@@ -990,7 +1002,7 @@ function ComposerSheet({ circleId, intent, setIntent, onClose, onSubmit, onNotic
   const accent = intents.find((item) => item.id === intent)?.color ?? "yellow";
 
   return <Modal onClose={onClose} label="记一笔">
-    <div className="sheet-heading"><Pill color={accent}>{review ? "发布确认" : "快速选择"}</Pill><h2>{review ? "发布前确认" : "记什么？"}</h2></div>
+    <SheetHeading eyebrow={review ? "发布" : "快速选择"} title={review ? "确认内容" : "记什么？"} color={accent}/>
 
     {!review ? <>
       <div className="intent-grid">{intents.map((item) => <button key={item.id} className={`intent intent-${item.color} ${intent === item.id ? "selected" : ""}`} onClick={() => setIntent(item.id)}><b>{item.icon}</b><span><strong>{item.label}</strong></span></button>)}</div>
@@ -1047,7 +1059,13 @@ function ShareSheet({ shareUrl, onClose, onCopy, onDone, onNotice }: { shareUrl:
   const me=memberById(activeDb.currentMemberId);
   const posterRef = useRef<HTMLDivElement>(null);
   async function saveImage() { try { await savePosterImage(posterRef.current, `${me.name}-个人档案`); onNotice("个人档案图片已保存"); } catch { onNotice("保存失败，请稍后再试"); } }
-  return <Modal onClose={onClose} label="分享个人档案预览"><span className="sheet-kicker">分享个人档案</span><div ref={posterRef} className="share-poster"><div className="poster-top"><Character member={me}/><div><span>{me.handle}</span><h2>{me.name}的个人档案</h2></div></div><div className="poster-panel poster-need"><b>我目前想要</b>{needs.map((item) => <p key={item.id}>{item.title}</p>)}{needs.length === 0 && <p>暂无公开内容</p>}</div><div className="poster-panel poster-offer"><b>我目前可以给</b>{offers.map((item) => <p key={item.id}>{item.title}</p>)}{offers.length === 0 && <p>暂无公开内容</p>}</div><div className="poster-bottom"><div><b>可以问，也可以拒绝。</b></div><QrCode value={shareUrl} className="fake-qr"/></div></div><p className="share-boundary-note">仅包含跨圈公开内容</p>{isLocalUrl(shareUrl) && <p className="local-link-warning">本地测试链接，仅这台电脑可打开。</p>}<div className="share-link-row"><span>{shareUrl}</span><button className="secondary-button" onClick={onCopy}>复制链接</button></div><div className="share-primary-actions"><button className="secondary-button" onClick={saveImage}>保存图片</button><button className="primary-button" onClick={onDone}>{isLocalUrl(shareUrl) ? "复制测试链接" : "分享档案"}</button></div></Modal>;
+  return <Modal onClose={onClose} label="分享个人档案预览">
+    <SheetHeading eyebrow="分享" title="个人档案" color="blue"/>
+    <div ref={posterRef} className="share-poster"><div className="poster-top"><Character member={me}/><div><span>{me.handle}</span><h2>{me.name}的个人档案</h2></div></div><div className="poster-panel poster-need"><b>我目前想要</b>{needs.map((item) => <p key={item.id}>{item.title}</p>)}{needs.length === 0 && <p>暂无公开内容</p>}</div><div className="poster-panel poster-offer"><b>我目前可以给</b>{offers.map((item) => <p key={item.id}>{item.title}</p>)}{offers.length === 0 && <p>暂无公开内容</p>}</div><div className="poster-bottom"><div><b>可以问，也可以拒绝。</b></div><QrCode value={shareUrl} className="fake-qr"/></div></div>
+    {isLocalUrl(shareUrl) && <p className="local-link-warning">本地测试链接，仅这台电脑可打开。</p>}
+    <div className="share-link-row"><span>{shareUrl}</span><button className="secondary-button" onClick={onCopy}>复制链接</button></div>
+    <div className="sheet-actions"><button className="secondary-button" onClick={saveImage}>保存图片</button><button className="primary-button" onClick={onDone}>{isLocalUrl(shareUrl) ? "复制测试链接" : "分享档案"}</button></div>
+  </Modal>;
 }
 
 function PostShareSheet({ post, shareUrl, onClose, onNotice }: { post: Post; shareUrl: string; onClose: () => void; onNotice: (message: string) => void }) {
@@ -1078,17 +1096,16 @@ function PostShareSheet({ post, shareUrl, onClose, onNotice }: { post: Post; sha
   async function saveImage() { try { await savePosterImage(posterRef.current, `${post.badge}-${post.person}`); onNotice("动态分享图片已保存"); } catch { onNotice("保存失败，请稍后再试"); } }
 
   return <Modal onClose={onClose} label="分享动态预览">
-    <span className="sheet-kicker">DYNAMIC SHARE · 动态分享</span>
+    <SheetHeading eyebrow="分享" title="动态" color={post.color}/>
     <div ref={posterRef} className={`post-share-poster detail-${post.color}`}>
       {crossCircle
         ? <><div className="poster-top"><Character member={post.memberId ? memberById(post.memberId) : undefined} text={post.memberId ? undefined : post.avatar} color={post.color} variant={post.avatarVariant}/><div><span>{post.caption}</span><h2>{post.person}</h2></div></div><Pill color="cream">{post.badge} · 跨圈公开</Pill><p className="post-share-copy">{post.text}</p><small>{post.meta}</small></>
         : <div className="restricted-share"><Pill color="blue">圈内动态</Pill><h2>登录后查看</h2><small>{circleNames || "相关圈子"}</small></div>}
       <div className="poster-bottom"><div><b>{crossCircle ? "可以问，也可以拒绝。" : "仅圈内成员可见"}</b></div><QrCode value={shareUrl} className="fake-qr"/></div>
     </div>
-    <p className="share-boundary-note">{crossCircle ? "跨圈公开" : "仅圈内成员可见"}</p>
     {isLocalUrl(shareUrl) && <p className="local-link-warning">本地测试链接，仅这台电脑可打开。</p>}
     <div className="share-link-row"><span>{shareUrl}</span><button className="secondary-button" onClick={copyLink}>复制链接</button></div>
-    <div className="share-primary-actions"><button className="secondary-button" onClick={saveImage}>保存图片</button><button className="primary-button" onClick={sharePost}>{isLocalUrl(shareUrl) ? "复制测试链接" : "分享动态"}</button></div>
+    <div className="sheet-actions"><button className="secondary-button" onClick={saveImage}>保存图片</button><button className="primary-button" onClick={sharePost}>{isLocalUrl(shareUrl) ? "复制测试链接" : "分享动态"}</button></div>
   </Modal>;
 }
 
@@ -1182,11 +1199,11 @@ function ProfileSheet({ member, activeCircleId, initialTab, onClose, onNotice, o
   const transactionStatus = { pending: "待确认", confirmed: "已确认", corrected: "已更正", rejected: "已撤销" } as const;
 
   return <><Modal onClose={onClose} label={`${member.name}的完整社区档案`} wide>
-    <div className={`role-card role-${member.color}`}><Character member={member}/><div><Pill color="cream">{isSelf ? "我的完整档案" : `同圈成员 · ${member.circleIds.length} 个圈`}</Pill><h2>{member.name}</h2><p>{member.handle}{member.bio ? ` · ${member.bio}` : ""}</p></div></div>
+    <SheetHeading eyebrow={isSelf ? "我的档案" : "成员档案"} title={member.name} description={member.bio || undefined} meta={member.handle} color={member.color} visual={<Character member={member} small/>}/>
     <div className="profile-numbers"><div><b>{activeAccount.balance > 0 ? "+" : ""}{activeAccount.balance}</b><span>{activeCircle.name} · 当前额度</span></div><div><b>{activeAccount.given}</b><span>在本圈给出过</span></div><div><b>{activeAccount.received}</b><span>在本圈收到过</span></div></div>
     <div className="profile-tabs" role="tablist"><button className={tab === "cards" ? "active" : ""} onClick={() => setTab("cards")}>好人卡 <b>{cards.length}</b></button><button className={tab === "listings" ? "active" : ""} onClick={() => setTab("listings")}>需要 / 提供 <b>{listings.length}</b></button><button className={tab === "transactions" ? "active" : ""} onClick={() => setTab("transactions")}>互助记录 <b>{transactions.length}</b></button></div>
 
-    {tab === "cards" && <div className="archive-list card-archive">{cards.map((card) => { const from = memberById(card.fromMemberId); const circle = circleById(card.circleId); return <article key={card.id}><header><Character member={from} small/><span><b>{from?.name} 写给 {member.name}</b><small>{[card.date, circle?.name].filter(Boolean).join(" · ")}</small></span><Pill color="coral">好人卡</Pill></header><p>“{card.story}”</p></article>; })}{cards.length === 0 && <div className="empty-archive">还没有好人卡。它由接收帮助的人主动写下。</div>}</div>}
+    {tab === "cards" && <div className="archive-list card-archive">{cards.map((card) => { const from = memberById(card.fromMemberId); const circle = circleById(card.circleId); return <article key={card.id}><header><Character member={from} small/><span><b>{from?.name} 写给 {member.name}</b><small>{[card.date, circle?.name].filter(Boolean).join(" · ")}</small></span><Pill color="coral">好人卡</Pill></header><p>“{card.story}”</p></article>; })}{cards.length === 0 && <div className="empty-archive">还没有好人卡</div>}</div>}
 
     {tab === "listings" && <div className="archive-list listing-archive">{listings.map((listing) => <article key={listing.id} className={listing.type === "need" ? "archive-need" : "archive-offer"}><header><Pill color={listing.type === "need" ? "pink" : "green"}>{listing.type === "need" ? "我想要" : "我可以给"}</Pill><span className={`status status-${listing.status}`}>{statusLabel[listing.status]}</span>{isSelf && listing.status !== "closed" && <button onClick={() => changeListing(listing.id, listing.status === "active" ? "paused" : "active")}>{listing.status === "active" ? "暂停" : "重新发布"}</button>}</header><h3>{listing.title}</h3><p>{listing.detail}</p><dl><div><dt>时间</dt><dd>{listing.time || "—"}</dd></div><div><dt>地点</dt><dd>{listing.location || "—"}</dd></div><div><dt>参考</dt><dd>{listing.reference || "可协商"}</dd></div><div><dt>范围</dt><dd>{listing.visibility === "cross-circle" ? "跨圈公开" : listing.circleIds.map((id) => circleById(id)?.name).filter(Boolean).join("、")}</dd></div></dl></article>)}{listings.length === 0 && <div className="empty-archive">还没有发布中的需要或提供。</div>}</div>}
 
@@ -1216,9 +1233,9 @@ function ProfileSheet({ member, activeCircleId, initialTab, onClose, onNotice, o
         </div>}
         <footer><span>{provider?.name} → {receiver?.name}</span><span>{transaction.happenedAt} · {circle.name}</span></footer>
       </article>;
-    })}{transactions.length === 0 && <div className="empty-archive">当前没有可以向你公开的交易记录。</div>}</div>}
+    })}{transactions.length === 0 && <div className="empty-archive">没有可见记录</div>}</div>}
 
-    <SectionTitle eyebrow="CIRCLE ACCOUNTS" title="各圈额度"/>
+    <SectionTitle title="各圈额度"/>
     <div className="account-strip">{accounts.map((account) => { const circle = circleById(account.circleId) ?? EMPTY_CIRCLE; return <div key={account.circleId}><span>{circle.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance} {circle.currency}</b><small>给出 {account.given} · 收到 {account.received}</small></div>; })}</div>
 
     {isSelf
@@ -1229,7 +1246,7 @@ function ProfileSheet({ member, activeCircleId, initialTab, onClose, onNotice, o
     {!isSelf && contact && !member.wechat && <p className="soft-note">TA 还没有填写联系方式，可以先在圈子里留言。</p>}
   </Modal>
   {transactionDialog && <Modal onClose={() => { if (!transactionBusy) setTransactionDialog(null); }} label={transactionDialog.kind === "correct" ? "提议更正额度" : "确认撤销记录"}>
-    <div className="sheet-heading"><Pill color={transactionDialog.kind === "correct" ? "blue" : "coral"}>{transactionDialog.kind === "correct" ? "等待对方确认" : "会恢复双方额度"}</Pill><h2>{transactionDialog.kind === "correct" ? "把这笔记录改成多少？" : "确认撤销这笔记录？"}</h2><p>{transactionDialog.transaction.title}</p></div>
+    <SheetHeading eyebrow={transactionDialog.kind === "correct" ? "更正记录" : "撤销记录"} title={transactionDialog.kind === "correct" ? "改成多少？" : "确认撤销？"} description={transactionDialog.transaction.title} color={transactionDialog.kind === "correct" ? "blue" : "coral"}/>
     {transactionDialog.kind === "correct"
       ? <div className="manual-form"><label><span>新的互助额度</span><input aria-label="新的互助额度" type="number" min="1" step="1" inputMode="numeric" value={correctionAmount} onChange={(event) => setCorrectionAmount(event.target.value)}/><small>当前是 {transactionDialog.transaction.amount} {transactionDialog.currency}。对方接受后才会重算。</small></label></div>
       : <div className="transaction-warning"><b>{transactionDialog.transaction.amount} {transactionDialog.currency}</b><p>撤销后，这笔记录不再计入双方额度；过去的通知会显示为已处理。</p></div>}
@@ -1244,20 +1261,19 @@ function ProfileSheet({ member, activeCircleId, initialTab, onClose, onNotice, o
 function RulesSheet({ circle, onClose }: { circle: Circle; onClose: () => void }) {
   const { references, rules, allowNegativeBalance, requireConfirmation, allowRejectCorrect } = circle.settings;
   const toggles = [
-    { on: allowNegativeBalance, title: "允许负余额", note: "可以先接受帮助" },
-    { on: requireConfirmation, title: "记录需对方确认", note: "确认后入账" },
-    { on: allowRejectCorrect, title: "允许拒绝 / 更正", note: "更改后重新计算" },
+    { on: allowNegativeBalance, title: "允许负余额" },
+    { on: requireConfirmation, title: "记录需对方确认" },
+    { on: allowRejectCorrect, title: "允许拒绝 / 更正" },
   ];
   return <Modal onClose={onClose} label={`${circle.name}介绍与约定`} wide>
-    <header className={`detail-hero hero-${circle.color}`}><CircleGlyph icon={circle.short} seed={circle.id} size="large"/><h2>{circle.name}</h2><p>{circle.tagline || "这个圈子还没有写介绍。"}</p><small>{circle.currency} · {circle.members} 位成员 · {circle.joining === "approval" ? "加入需审批" : "受邀可直接加入"}</small></header>
-    <SectionTitle eyebrow="REFERENCE" title="协商参考"/>
+    <SheetHeading eyebrow="圈子规则" title={circle.name} description={circle.tagline || undefined} meta={`${circle.currency} · ${circle.members} 位成员 · ${circle.joining === "approval" ? "加入需审批" : "受邀直接加入"}`} color={circle.color} visual={<CircleGlyph icon={circle.short} seed={circle.id} size="small"/>}/>
+    <SectionTitle title="协商参考"/>
     {references.length > 0
       ? <div className="reference-detail-grid">{references.map((item) => <div key={item.name}><span>{item.name}</span><strong>{item.value}</strong><p>{item.note}</p></div>)}</div>
       : <p className="soft-note">还没有协商参考。</p>}
-    <SectionTitle eyebrow="HOW IT RUNS" title="记账规则"/>
-    <div className="toggle-summary">{toggles.map((item) => <div key={item.title} className={item.on ? "on" : ""}><b>{item.on ? "✓" : "—"} {item.title}</b><span>{item.on ? item.note : "未开启"}</span></div>)}</div>
-    {rules.length > 0 && <><SectionTitle eyebrow="AGREEMENTS" title="圈子约定"/><section className="rule-list">{rules.map((rule, index) => <div key={rule}><b>{String(index + 1).padStart(2, "0")}</b><p>{rule}</p></div>)}</section></>}
-    <div className="boundary-card"><b>敏感内容可以不记录</b><p>也可以拒绝、暂停或退出。</p></div>
+    <SectionTitle title="记账规则"/>
+    <div className="toggle-summary">{toggles.map((item) => <div key={item.title} className={item.on ? "on" : ""}><b>{item.on ? "✓" : "—"} {item.title}</b><span>{item.on ? "已开启" : "未开启"}</span></div>)}</div>
+    {rules.length > 0 && <><SectionTitle title="圈子约定"/><section className="rule-list">{rules.map((rule, index) => <div key={rule}><b>{String(index + 1).padStart(2, "0")}</b><p>{rule}</p></div>)}</section></>}
   </Modal>;
 }
 
@@ -1289,11 +1305,11 @@ function MembersSheet({ circle, requests, isOwner, onProfile, onInvite, onClose,
     if (ok) setMemberAction(null);
   }
 
-  return <><Modal onClose={onClose} label={`${circle.name}全部成员`} wide><div className="sheet-heading member-heading"><Pill color={circle.color}>{circle.members} 位成员</Pill><h2>{circle.name}的成员</h2></div>{requests.length > 0 && <section className="request-list"><SectionTitle eyebrow="WAITING" title={`${requests.length} 个人在等你放行`}/>{requests.map((request) => <article key={request.member.id}><Character member={request.member}/><div><b>{request.member.name}</b><small>{request.member.handle} · {request.requestedAt}</small>{request.note && <p>“{request.note}”</p>}</div><div className="request-actions"><button className="primary-button" disabled={busy} onClick={() => run(() => onResolve(circle.id, request.member.id, "approve"))}>通过</button><button className="secondary-button" disabled={busy} onClick={() => run(() => onResolve(circle.id, request.member.id, "decline"))}>谢绝</button></div></article>)}</section>}<div className="member-list">{circleMembers.map((member,index) => { const account = accountFor(member.id, circle.id); const offer = activeDb.listings.find((listing) => listing.memberId === member.id && listing.type === "offer" && listing.status === "active"); return <button key={member.id || `unknown-${index}`} disabled={!isKnown(member)} onClick={() => onProfile(member.id)}><span className="member-index">0{index+1}</span><Character member={member}/><span><b>{member.name}</b><small>{member.handle}</small><p>{offer?.title ?? member.bio}</p></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div><button className="primary-button" onClick={onInvite}>＋ 邀请成员</button>
-    {isOwner && others.length > 0 && <section className="transfer-owner"><SectionTitle eyebrow="HANDOVER" title="转让圈主"/><p className="soft-note">对方将负责审批与设置。</p><div className="transfer-list">{others.map((member) => <button key={member.id} disabled={actionBusy} onClick={() => setMemberAction({ kind: "transfer", member })}><Character member={member} small/><span><b>{member.name}</b><small>{member.handle}</small></span><strong>转让 →</strong></button>)}</div></section>}
-    <section className="leave-circle"><SectionTitle eyebrow="EXIT" title="退出圈子"/><p className="soft-note">{blocker || "历史记录保留；余额归零；发布内容关闭。"}</p><button className="text-link danger" disabled={blocker !== "" || actionBusy} onClick={() => setMemberAction({ kind: "leave" })}>退出 {circle.name}</button></section></Modal>
+  return <><Modal onClose={onClose} label={`${circle.name}全部成员`} wide><SheetHeading eyebrow={`${circle.members} 位成员`} title={`${circle.name}的成员`} color={circle.color}/>{requests.length > 0 && <section className="request-list"><SectionTitle title={`${requests.length} 个人在等你放行`}/>{requests.map((request) => <article key={request.member.id}><Character member={request.member}/><div><b>{request.member.name}</b><small>{request.member.handle} · {request.requestedAt}</small>{request.note && <p>“{request.note}”</p>}</div><div className="request-actions"><button className="primary-button" disabled={busy} onClick={() => run(() => onResolve(circle.id, request.member.id, "approve"))}>通过</button><button className="secondary-button" disabled={busy} onClick={() => run(() => onResolve(circle.id, request.member.id, "decline"))}>谢绝</button></div></article>)}</section>}<div className="member-list">{circleMembers.map((member,index) => { const account = accountFor(member.id, circle.id); const offer = activeDb.listings.find((listing) => listing.memberId === member.id && listing.type === "offer" && listing.status === "active"); return <button key={member.id || `unknown-${index}`} disabled={!isKnown(member)} onClick={() => onProfile(member.id)}><span className="member-index">0{index+1}</span><Character member={member}/><span><b>{member.name}</b><small>{member.handle}</small><p>{offer?.title ?? member.bio}</p></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div><button className="primary-button" onClick={onInvite}>＋ 邀请成员</button>
+    {isOwner && others.length > 0 && <section className="transfer-owner"><SectionTitle title="转让圈主"/><p className="soft-note">对方将负责审批与设置。</p><div className="transfer-list">{others.map((member) => <button key={member.id} disabled={actionBusy} onClick={() => setMemberAction({ kind: "transfer", member })}><Character member={member} small/><span><b>{member.name}</b><small>{member.handle}</small></span><strong>转让 →</strong></button>)}</div></section>}
+    <section className="leave-circle"><SectionTitle title="退出圈子"/><p className="soft-note">{blocker || "历史记录保留；余额归零；发布内容关闭。"}</p><button className="text-link danger" disabled={blocker !== "" || actionBusy} onClick={() => setMemberAction({ kind: "leave" })}>退出 {circle.name}</button></section></Modal>
     {memberAction && <Modal onClose={() => { if (!actionBusy) setMemberAction(null); }} label={memberAction.kind === "transfer" ? "确认转让圈主" : "确认退出圈子"}>
-      <div className="sheet-heading"><Pill color={memberAction.kind === "transfer" ? "blue" : "coral"}>{memberAction.kind === "transfer" ? "权限会立即改变" : "不会删除历史记录"}</Pill><h2>{memberAction.kind === "transfer" ? `把圈主转让给 ${memberAction.member.name}？` : `确认退出 ${circle.name}？`}</h2><p>{memberAction.kind === "transfer" ? "转让后，审批入圈和修改设置由对方负责；你仍然是普通成员。" : "退出后，你的发布中内容会关闭，过去由双方确认的互助记录仍会保留。"}</p></div>
+      <SheetHeading eyebrow={memberAction.kind === "transfer" ? "转让圈主" : "退出圈子"} title={memberAction.kind === "transfer" ? `转让给 ${memberAction.member.name}？` : `退出 ${circle.name}？`} description={memberAction.kind === "transfer" ? "对方将接管审批和设置；你仍是普通成员。" : "发布内容将关闭，历史记录保留。"} color={memberAction.kind === "transfer" ? "blue" : "coral"}/>
       <div className="sheet-actions"><button className="secondary-button" disabled={actionBusy} onClick={() => setMemberAction(null)}>取消</button><button className={`primary-button ${memberAction.kind === "leave" ? "danger-button" : ""}`} disabled={actionBusy} onClick={confirmMemberAction}>{actionBusy ? "正在处理…" : memberAction.kind === "transfer" ? "确认转让" : "确认退出"}</button></div>
     </Modal>}
   </>;
@@ -1310,7 +1326,7 @@ function InviteSheet({ circle, onClose, onNotice }: { circle: Circle; onClose: (
   async function shareInvite(){const url=await createInvite();if(!url)return;const canShare=typeof navigator.share==="function";try{if(isLocalUrl(url)){await navigator.clipboard.writeText(url);onNotice("已复制本地测试链接，只能在这台电脑打开");return;}if(canShare)await navigator.share({title:`加入${circle.name}`,text:circle.tagline,url});else await navigator.clipboard.writeText(url);}catch{return;}onNotice(canShare?"邀请已经交给系统分享":"邀请链接已复制，可以粘贴到微信");}
   async function showPoster(){setMethod("poster");if(!inviteUrl&&!creating)await createInvite();}
   async function saveImage(){if(!inviteUrl){onNotice("请先生成邀请图");return;}try{await savePosterImage(posterRef.current, `${circle.name}-邀请`);onNotice("邀请图片已保存");}catch{onNotice("保存失败，请稍后再试");}}
-  return <Modal onClose={onClose} label={`邀请加入${circle.name}`}><div className="sheet-heading"><Pill color={circle.color}>{circle.joining === "approval" ? "加入需审批" : "受邀直接加入"}</Pill><h2>邀请加入 {circle.name}</h2></div><div className="invite-tabs"><button className={method === "link" ? "active" : ""} onClick={() => setMethod("link")}>邀请链接</button><button className={method === "poster" ? "active" : ""} onClick={() => void showPoster()}>微信邀请图</button></div>{method === "link" ? <div className="invite-link"><span>7 天有效 · 仅可使用 1 次</span><b>{inviteUrl||"生成安全邀请链接"}</b><button disabled={creating} onClick={copyInvite}>{creating?"正在生成…":inviteUrl?"复制链接":"生成并复制"}</button></div> : <div ref={posterRef} className={`mini-invite-poster hero-${circle.color}`}><CircleGlyph icon={circle.short} seed={circle.id} size="regular"/><span>来自圈内伙伴的邀请</span><h3>来 {circle.name}<br/>看看我们还能怎样互相帮助</h3><p>可以问，也可以拒绝。</p><QrCode value={inviteUrl} className="mini-code"/></div>}{isLocalUrl(inviteUrl) && <p className="local-link-warning">本地测试地址，仅这台电脑可打开。</p>}{method === "poster" ? <div className="share-primary-actions"><button className="secondary-button" disabled={creating || !inviteUrl} onClick={saveImage}>保存图片</button><button className="primary-button" disabled={creating} onClick={shareInvite}>分享邀请</button></div> : <button className="primary-button" disabled={creating} onClick={shareInvite}>分享邀请</button>}</Modal>;
+  return <Modal onClose={onClose} label={`邀请加入${circle.name}`}><SheetHeading eyebrow={circle.joining === "approval" ? "加入需审批" : "受邀直接加入"} title={`邀请加入 ${circle.name}`} color={circle.color}/><div className="invite-tabs"><button className={method === "link" ? "active" : ""} onClick={() => setMethod("link")}>邀请链接</button><button className={method === "poster" ? "active" : ""} onClick={() => void showPoster()}>微信邀请图</button></div>{method === "link" ? <div className="invite-link"><span>7 天有效 · 仅可使用 1 次</span><b>{inviteUrl||"生成安全邀请链接"}</b><button disabled={creating} onClick={copyInvite}>{creating?"正在生成…":inviteUrl?"复制链接":"生成并复制"}</button></div> : <div ref={posterRef} className={`mini-invite-poster hero-${circle.color}`}><CircleGlyph icon={circle.short} seed={circle.id} size="regular"/><span>来自圈内伙伴的邀请</span><h3>来 {circle.name}<br/>看看我们还能怎样互相帮助</h3><p>可以问，也可以拒绝。</p><QrCode value={inviteUrl} className="mini-code"/></div>}{isLocalUrl(inviteUrl) && <p className="local-link-warning">本地测试地址，仅这台电脑可打开。</p>}<div className={`sheet-actions ${method === "link" ? "sheet-actions-single" : ""}`}>{method === "poster" && <button className="secondary-button" disabled={creating || !inviteUrl} onClick={saveImage}>保存图片</button>}<button className="primary-button" disabled={creating} onClick={shareInvite}>分享邀请</button></div></Modal>;
 }
 
 // Four-step create wizard. Every field maps to something loop-backend stores:
@@ -1363,9 +1379,9 @@ function CreateCircleView({ onExit, onDone }: { onExit: () => void; onDone: (inp
     <div className="create-panel">
       {step === 1 && <><div className="create-heading"><span>STEP 01 · IDENTITY</span><h2>圈子身份</h2></div><div className="create-form-grid"><label className="wide"><span>圈子名称</span><input value={name} maxLength={40} placeholder="例如：周末手作营地" onChange={(event) => setName(event.target.value)}/></label><label><span>互助额度名称</span><input value={currency} maxLength={20} placeholder="例如：泡泡" onChange={(event) => setCurrency(event.target.value)}/></label><label className="wide"><span>一句话介绍</span><textarea value={tagline} maxLength={120} placeholder="一起做东西，也一起分享工具、经验和时间。" onChange={(event) => setTagline(event.target.value)}/></label></div><div className="circle-icon-picker"><div className="circle-icon-picker-heading"><span className="form-label">选择圈子图案</span></div>{CIRCLE_ICON_GROUPS.map((group) => <section key={group.label}><header><b>{group.label}</b></header><div>{group.keys.map((key) => <button key={key} type="button" className={short === key ? "selected" : ""} onClick={() => setShort(key)} aria-label={`选择${CIRCLE_ICON_LABELS[key]}圈子图案`}><CircleGlyph icon={key} seed={key} size="small"/><span>{CIRCLE_ICON_LABELS[key]}</span></button>)}</div></section>)}</div></>}
 
-      {step === 2 && <><div className="create-heading"><span>STEP 02 · MUTUAL CREDIT</span><h2>互助设置</h2></div><div className="mechanism-card"><div className="mechanism-icon">＋<br/>−</div><div><Pill color="yellow">互助账户</Pill><h3>成员共同记账</h3><p>给出增加，收到减少。</p></div><b>已选择</b></div><div className="reference-editor"><div><span>协商参考</span><input value={referenceName} placeholder="一小时协作" onChange={(event) => setReferenceName(event.target.value)}/></div><div><span>大约多少额度</span><input value={referenceValue} placeholder={`约 5 ${unit}`} onChange={(event) => setReferenceValue(event.target.value)}/></div></div><span className="form-label">记账规则</span><div className="toggle-list"><label><span><b>允许负余额</b><small>可以先接受帮助</small></span><input type="checkbox" checked={allowNegative} onChange={(event) => setAllowNegative(event.target.checked)}/></label><label><span><b>记录需要对方确认</b><small>确认后入账</small></span><input type="checkbox" checked={requireConfirmation} onChange={(event) => setRequireConfirmation(event.target.checked)}/></label><label><span><b>允许拒绝 / 更正</b><small>更改后重新计算</small></span><input type="checkbox" checked={allowRejectCorrect} onChange={(event) => setAllowRejectCorrect(event.target.checked)}/></label></div></>}
+      {step === 2 && <><div className="create-heading"><span>STEP 02 · MUTUAL CREDIT</span><h2>互助设置</h2></div><div className="mechanism-card"><div className="mechanism-icon">＋<br/>−</div><div><Pill color="yellow">互助账户</Pill><h3>成员共同记账</h3></div><b>已选择</b></div><div className="reference-editor"><div><span>协商参考</span><input value={referenceName} placeholder="一小时协作" onChange={(event) => setReferenceName(event.target.value)}/></div><div><span>大约多少额度</span><input value={referenceValue} placeholder={`约 5 ${unit}`} onChange={(event) => setReferenceValue(event.target.value)}/></div></div><span className="form-label">记账规则</span><div className="toggle-list"><label><span><b>允许负余额</b><small>可以先接受帮助</small></span><input type="checkbox" checked={allowNegative} onChange={(event) => setAllowNegative(event.target.checked)}/></label><label><span><b>记录需要对方确认</b><small>确认后入账</small></span><input type="checkbox" checked={requireConfirmation} onChange={(event) => setRequireConfirmation(event.target.checked)}/></label><label><span><b>允许拒绝 / 更正</b><small>更改后重新计算</small></span><input type="checkbox" checked={allowRejectCorrect} onChange={(event) => setAllowRejectCorrect(event.target.checked)}/></label></div></>}
 
-      {step === 3 && <><div className="create-heading"><span>STEP 03 · GOVERNANCE</span><h2>成员与边界</h2></div><span className="form-label">新成员怎么加入</span><div className="create-choice-row two"><button className={joining === "direct" ? "active" : ""} onClick={() => setJoining("direct")}><b>受邀直接加入</b></button><button className={joining === "approval" ? "active" : ""} onClick={() => setJoining("approval")}><b>管理员审批</b></button></div><label className="typing-box"><span>圈子约定（一行一条，最多 10 条）</span><textarea rows={5} value={rules} onChange={(event) => setRules(event.target.value)} placeholder={"可以开口，也可以拒绝\n敏感互助可以不记录\n成员可以随时暂停或退出"}/><small className={ruleError ? "field-count over" : "field-count"}>{ruleList.length} / 10</small></label><div className="boundary-card"><b>共同边界</b><p>不与人民币兑换，不做贡献排名。</p></div></>}
+      {step === 3 && <><div className="create-heading"><span>STEP 03 · GOVERNANCE</span><h2>成员与边界</h2></div><span className="form-label">新成员怎么加入</span><div className="create-choice-row two"><button className={joining === "direct" ? "active" : ""} onClick={() => setJoining("direct")}><b>受邀直接加入</b></button><button className={joining === "approval" ? "active" : ""} onClick={() => setJoining("approval")}><b>管理员审批</b></button></div><label className="typing-box"><span>圈子约定（一行一条，最多 10 条）</span><textarea rows={5} value={rules} onChange={(event) => setRules(event.target.value)} placeholder={"可以开口，也可以拒绝\n敏感互助可以不记录\n成员可以随时暂停或退出"}/><small className={ruleError ? "field-count over" : "field-count"}>{ruleList.length} / 10</small></label></>}
 
       {step === 4 && <><div className="create-heading"><span>STEP 04 · REVIEW</span><h2>创建前确认</h2></div><article className="circle-draft-preview"><header><CircleGlyph icon={short} seed={name} size="large"/><div><Pill color="cream">新圈预览</Pill><h2>{name || "未命名圈子"}</h2><p>{tagline || "还没有写一句话介绍"}</p></div></header><div className="draft-summary"><div><span>互助额度</span><b>{currency || "未命名"}</b><small>不兑换人民币</small></div><div><span>加入方式</span><b>{joining === "direct" ? "受邀直接加入" : "管理员审批"}</b><small>{allowNegative ? "允许负余额" : "先贡献再支取"}</small></div><div><span>协商参考</span><b>{referenceName || "暂未设置"}</b><small>{referenceValue}</small></div></div><ul><li>记录已完成的互助</li>{requireConfirmation ? <li>对方确认后入账</li> : <li>记录后入账</li>}{allowRejectCorrect && <li>允许拒绝或更正</li>}{ruleList.map((rule) => <li key={rule}>{rule}</li>)}</ul><footer><span>可以问，也可以拒绝。</span></footer></article>{error && <div className="review-warning"><b>创建失败</b><p>{error}</p></div>}</>}
 
@@ -1382,7 +1398,7 @@ function FeedFilterSheet({ active, onSelect, onClose }: { active: FeedFilter; on
     {id:"offer",title:"我可以给",color:"green"},
     {id:"card",title:"好人卡",color:"coral"},
   ];
-  return <Modal onClose={onClose} label="筛选圈子动态"><div className="sheet-heading"><Pill color="yellow">快速选择</Pill><h2>筛选动态</h2></div><div className="filter-menu">{options.map((item) => <button key={item.id} className={`${active === item.id ? "active" : ""} filter-${item.color}`} onClick={() => onSelect(item.id)}><span/><div><b>{item.title}</b></div><strong>{active === item.id ? "✓" : "→"}</strong></button>)}</div></Modal>;
+  return <Modal onClose={onClose} label="筛选圈子动态"><SheetHeading eyebrow="快速选择" title="筛选动态" color="yellow"/><div className="filter-menu">{options.map((item) => <button key={item.id} className={`${active === item.id ? "active" : ""} filter-${item.color}`} onClick={() => onSelect(item.id)}><span/><div><b>{item.title}</b></div><strong>{active === item.id ? "✓" : "→"}</strong></button>)}</div></Modal>;
 }
 
 function PostSheet({ post, onProfile, onShare, onClose }: { post: Post; onProfile: () => void; onShare: () => void; onClose: () => void }) {
@@ -1401,9 +1417,9 @@ function PostSheet({ post, onProfile, onShare, onClose }: { post: Post; onProfil
     details.push({ label: "发生 / 记录", value: `${transaction.happenedAt} · ${transaction.recordedAt} 记录` }, { label: "额度与状态", value: `${transaction.amount} ${circle.currency} · ${status}` }, { label: "可见范围", value: transaction.visibility === "mystery" ? "圈内神秘记录" : transaction.visibility === "private" ? "仅当事人" : "圈内公开" });
   } else {
     const card = activeDb.goodCards.find((item) => item.id === post.sourceId)!;
-    details.push({ label: "写下日期", value: card.date }, { label: "可见范围", value: card.visibility === "cross-circle" ? "跨圈公开" : "接收者已隐藏" }, { label: "余额影响", value: "不产生余额，也不需要偿还" });
+    details.push({ label: "写下日期", value: card.date }, { label: "可见范围", value: card.visibility === "cross-circle" ? "跨圈公开" : "接收者已隐藏" }, { label: "余额", value: "不变" });
   }
-  return <Modal onClose={onClose} label="动态详情"><div className={`post-detail detail-${post.color}`}><div className="post-detail-head"><Character member={post.memberId ? memberById(post.memberId) : undefined} text={post.memberId ? undefined : post.avatar} color={post.color} variant={post.avatarVariant}/><div><Pill color="cream">{post.badge}</Pill><h2>{post.person}</h2><p>{post.caption}</p></div></div><p className="post-detail-copy">{post.text}</p><div className="chip-row">{post.chips.map((chip) => <span key={chip}>#{chip}</span>)}</div></div><div className="detail-meta">{details.map((detail) => <div key={detail.label}><span>{detail.label}</span><b>{detail.value}</b></div>)}</div><div className="sheet-actions">{post.memberId ? <button className="secondary-button" onClick={onProfile}>成员主页</button> : <button className="secondary-button" onClick={onClose}>关闭</button>}<button className="primary-button" onClick={onShare}>分享</button></div></Modal>;
+  return <Modal onClose={onClose} label="动态详情"><SheetHeading eyebrow={post.badge} title={post.person} description={post.caption} color={post.color} visual={<Character member={post.memberId ? memberById(post.memberId) : undefined} text={post.memberId ? undefined : post.avatar} color={post.color} variant={post.avatarVariant} small/>}/><div className={`post-detail detail-${post.color}`}><p className="post-detail-copy">{post.text}</p><div className="chip-row">{post.chips.map((chip) => <span key={chip}>#{chip}</span>)}</div></div><div className="detail-meta">{details.map((detail) => <div key={detail.label}><span>{detail.label}</span><b>{detail.value}</b></div>)}</div><div className="sheet-actions">{post.memberId ? <button className="secondary-button" onClick={onProfile}>成员主页</button> : <button className="secondary-button" onClick={onClose}>关闭</button>}<button className="primary-button" onClick={onShare}>分享</button></div></Modal>;
 }
 
 function NotificationsSheet({ notifications, onClose, onOpen }: { notifications: AppDatabase["notifications"]; onClose: () => void; onOpen: (destination: NotificationDestination, circleId?: string) => void }) {
@@ -1443,7 +1459,7 @@ function NotificationsSheet({ notifications, onClose, onOpen }: { notifications:
   }
 
   return <Modal onClose={onClose} label="通知" wide>
-    <div className="sheet-heading"><Pill color="yellow">通知</Pill><h2>需要处理的事</h2></div>
+    <SheetHeading eyebrow="通知" title="需要处理的事" color="yellow"/>
     {notifications.length === 0
       ? <div className="empty-archive">还没有通知</div>
       : <div className="archive-list notification-list">{notifications.map((n) => { const { badge, color, line, destination, actionLabel } = describe(n); return <article key={n.id} className={n.read ? "" : "unread"}><header><Pill color={color}>{badge}</Pill><small>{n.createdAt}</small></header><p>{line}</p>{destination && actionLabel && <button className="notification-action" onClick={() => onOpen(destination, n.circleId)}>{actionLabel} →</button>}</article>; })}</div>}
@@ -1453,7 +1469,7 @@ function NotificationsSheet({ notifications, onClose, onOpen }: { notifications:
 function SettingsSheet({ settings, onClose, onSaved }: { settings: AppDatabase["settings"]; onClose: () => void; onSaved: () => Promise<void> }) {
   const [cards, setCards] = useState(settings.publicCards); const [needs, setNeeds] = useState(settings.publicListings); const [hidden, setHidden] = useState(settings.keepHiddenPrivate); const [saving,setSaving]=useState(false); const [error,setError]=useState("");
   async function save(){try{setSaving(true);setError("");const response=await fetch("/api/settings",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({publicCards:cards,publicListings:needs,keepHiddenPrivate:hidden})});const result=await response.json() as {error?:string};if(!response.ok)throw new Error(result.error||"保存失败");await onSaved();onClose();}catch(error){setError(error instanceof Error?error.message:"保存失败");}finally{setSaving(false);}}
-  return <Modal onClose={onClose} label="跨圈公开设置"><div className="sheet-heading"><Pill color="blue">公开边界</Pill><h2>跨圈公开</h2></div><div className="toggle-list"><label><span><b>好人卡</b><small>未隐藏的内容</small></span><input type="checkbox" checked={cards} onChange={(event) => setCards(event.target.checked)}/></label><label><span><b>需要 / 提供</b><small>标记为跨圈的内容</small></span><input type="checkbox" checked={needs} onChange={(event) => setNeeds(event.target.checked)}/></label><label><span><b>保留私人存档</b><small>隐藏内容仅自己可见</small></span><input type="checkbox" checked={hidden} onChange={(event) => setHidden(event.target.checked)}/></label></div>{error&&<p className="soft-note">{error}</p>}<button className="primary-button" disabled={saving} onClick={save}>{saving?"正在保存…":"保存"}</button></Modal>;
+  return <Modal onClose={onClose} label="跨圈公开设置"><SheetHeading eyebrow="公开设置" title="谁能看见" color="blue"/><div className="toggle-list"><label><span><b>好人卡</b></span><input type="checkbox" checked={cards} onChange={(event) => setCards(event.target.checked)}/></label><label><span><b>需要 / 提供</b></span><input type="checkbox" checked={needs} onChange={(event) => setNeeds(event.target.checked)}/></label><label><span><b>保留私人存档</b></span><input type="checkbox" checked={hidden} onChange={(event) => setHidden(event.target.checked)}/></label></div>{error&&<p className="soft-note">{error}</p>}<div className="sheet-actions sheet-actions-single"><button className="primary-button" disabled={saving} onClick={save}>{saving?"正在保存…":"保存"}</button></div></Modal>;
 }
 
 // Owner-only circle settings: the three mutual-aid toggles plus the free-text
@@ -1504,7 +1520,7 @@ function CircleSettingsSheet({ circle, onClose, onSaved, onNotice }: { circle: C
   }
 
   return <Modal onClose={onClose} label={`${circle.name}设置`} wide>
-    <div className="sheet-heading"><Pill color={circle.color}>圈主设置</Pill><h2>{circle.name}</h2></div>
+    <SheetHeading eyebrow="圈主设置" title={circle.name} color={circle.color}/>
     <div className="manual-form">
       <label><span>互助额度名称</span><input value={currency} maxLength={20} onChange={(e) => setCurrency(e.target.value)}/></label>
       <label><span>一句话介绍</span><textarea value={tagline} rows={2} maxLength={120} onChange={(e) => setTagline(e.target.value)}/></label>
@@ -1570,14 +1586,14 @@ function EditProfileSheet({ member, onClose, onSaved, onNotice }: { member: Memb
   }
 
   return <Modal onClose={onClose} label="编辑资料">
-    <div className="sheet-heading"><Pill color="cream">{member.handle}</Pill><h2>我的跨圈身份</h2><p>用户名和地址由系统生成，不能修改。联系方式只对同圈成员显示。</p></div>
+    <SheetHeading eyebrow={member.handle} title="编辑资料" color="cream"/>
     <div className="manual-form">
       <label><span>显示名称</span><input value={name} maxLength={40} onChange={(e) => setName(e.target.value)}/></label>
       <label><span>一句话介绍</span><input value={bio} maxLength={80} onChange={(e) => setBio(e.target.value)} placeholder="例如：喜欢把坏掉的东西拆开"/></label>
-      <label><span>联系方式 / 微信号</span><input value={wechat} maxLength={60} onChange={(e) => setWechat(e.target.value)} placeholder="只对同圈成员显示"/></label>
+      <label><span>联系方式 / 微信号（同圈可见）</span><input value={wechat} maxLength={60} onChange={(e) => setWechat(e.target.value)}/></label>
     </div>
     <div className="avatar-customizer">
-      <div className="avatar-customizer-preview"><div className="avatar-live-preview"><Character variant={avatar} color={member.color}/></div><div><span className="form-label">我的头像</span><p>{avatarMode === "abstract" ? "注册后默认使用系统几何图案，你也可以换一个。" : "自由选择发型、表情、眼镜和颜色。"}</p>{avatarMode === "face" && <div className="avatar-preview-actions"><button type="button" onClick={randomizeFace}>换一套搭配</button><button type="button" onClick={() => setFace({ ...DEFAULT_FACE_CONFIG })}>恢复默认脸</button></div>}</div></div>
+      <div className="avatar-customizer-preview"><div className="avatar-live-preview"><Character variant={avatar} color={member.color}/></div><div><span className="form-label">我的头像</span>{avatarMode === "face" && <div className="avatar-preview-actions"><button type="button" onClick={randomizeFace}>换一套搭配</button><button type="button" onClick={() => setFace({ ...DEFAULT_FACE_CONFIG })}>恢复默认脸</button></div>}</div></div>
       <div className="avatar-mode-row"><button type="button" className={avatarMode === "abstract" ? "selected" : ""} onClick={() => setAvatarMode("abstract")}>系统几何图案</button><button type="button" className={avatarMode === "face" ? "selected" : ""} onClick={() => setAvatarMode("face")}>定制我的脸</button></div>
       {avatarMode === "abstract" && <div className="avatar-part-controls"><section className="avatar-option-panel"><div className="avatar-visual-grid">{ABSTRACT_AVATARS.map((variant, index) => <button key={variant} type="button" aria-label={`系统几何图案 ${index + 1}`} className={`avatar-visual-choice ${abstractAvatar === variant ? "selected" : ""}`} onClick={() => setAbstractAvatar(variant)}><Character variant={variant} color={member.color} small/></button>)}</div></section></div>}
       {avatarMode === "face" && <div className="avatar-part-controls">

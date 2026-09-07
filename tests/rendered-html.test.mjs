@@ -96,7 +96,7 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /QRCode/);
   assert.match(page, /profile=/);
   assert.match(page, /listing\.visibility === "cross-circle"/);
-  assert.match(page, /仅包含跨圈公开内容/);
+  assert.doesNotMatch(page, /仅包含跨圈公开内容/);
   assert.match(page, /复制链接/);
   assert.match(page, /PostShareSheet/);
   assert.match(page, /post=/);
@@ -222,7 +222,7 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.equal((page.match(/>保存图片</g) ?? []).length, 3);
   // New accounts keep one of eight stable geometry marks; profile editing can
   // save a real, composable face without replacing the backend identity.
-  assert.match(page, /注册后默认使用系统几何图案，你也可以换一个/);
+  assert.doesNotMatch(page, /注册后默认使用系统几何图案，你也可以换一个/);
   assert.match(page, /定制我的脸/);
   assert.match(page, /ABSTRACT_AVATARS\.map/);
   assert.match(page, /AbstractAvatarArtwork/);
@@ -285,6 +285,12 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(css, /drop-shadow\(1px 1px 0 rgba\(25,25,25,\.28\)\)/);
   assert.match(css, /\.topbar \.avatar-button \.character \{ box-shadow: 1px 1px 0 rgba\(25,25,25,\.24\); \}/);
   assert.match(css, /\.bell-button:hover \{ transform: translate\(-1px,-1px\); box-shadow: 2px 2px 0 rgba\(25,25,25,\.32\); \}/);
+  // Every modal opens with the same compact title structure; removed copy
+  // must not reappear as a second explanatory layer.
+  assert.match(page, /function SheetHeading/);
+  assert.equal((page.match(/<Modal/g) ?? []).length, (page.match(/<SheetHeading/g) ?? []).length);
+  assert.doesNotMatch(page, /<div className="sheet-heading"/);
+  assert.doesNotMatch(page, /发布确认|发布前确认|公开边界|给出增加，收到减少/);
   // No seeded demo identities remain.
   assert.doesNotMatch(page, /"qiao"|"ashu"|"village"|"human"/);
   // The refreshed visual language keeps the four colors with softer surfaces.
