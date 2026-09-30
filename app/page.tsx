@@ -341,6 +341,16 @@ function LoginGate({ onDone }: { onDone: () => Promise<void> }) {
   </section></main>;
 }
 
+// Shown when a refetch fails while the person is still signed in. The world on
+// screen may be stale, but a backend blip must not fall back to the sign-in
+// gate and ask for another OTP.
+function SessionRetryBar({ onRetry }: { onRetry: () => void }) {
+  return <div className="session-retry" role="status">
+    <span>数据没能刷新，你仍然处于登录状态。</span>
+    <button onClick={onRetry}>重试</button>
+  </div>;
+}
+
 export default function Home() {
   const [db, setDb] = useState<AppDatabase>(initialDb);
   const [loaded, setLoaded] = useState(false);
@@ -388,6 +398,12 @@ export default function Home() {
     try { await refreshData(); } catch { /* stale until the next load */ }
   }
   refreshRef.current = refreshData;
+
+  // A failed refetch while signed in is a stale screen, not a logout: keep the
+  // last good world visible and offer a retry.
+  async function retryLoad() {
+    try { await refreshData(); } catch { /* the banner stays until a load succeeds */ }
+  }
 
   // Circles the user could still join (loop's `GET /circles`, minus their own).
   function loadOpenCircles() {
@@ -501,10 +517,20 @@ export default function Home() {
     if (!db.session.authenticated) return;
     const joinToken = new URLSearchParams(window.location.search).get("join");
     if (!joinToken) return;
-    window.history.replaceState({}, "", "/");
+    // Only drop the token from the URL once the accept has actually landed.
+    // Clearing it first left a transient failure with no way back to the circle.
     fetch(`/api/invitations/${encodeURIComponent(joinToken)}`, { method: "POST" })
-      .then(async (r) => { const d = (await r.json().catch(() => ({}))) as { status?: string; error?: string }; if (r.ok) { await syncAfterWrite(); flash(d.status === "pending" ? "已申请加入，等待管理员确认" : "已加入圈子"); } else { flash(d.error || "加入失败"); } })
-      .catch(() => {});
+      .then(async (r) => {
+        const d = (await r.json().catch(() => ({}))) as { status?: string; error?: string };
+        if (r.ok) {
+          window.history.replaceState({}, "", "/");
+          await syncAfterWrite();
+          flash(d.status === "pending" ? "已申请加入，等待管理员确认" : "已加入圈子");
+        } else {
+          flash(d.error || "加入失败");
+        }
+      })
+      .catch(() => flash("加入失败，请稍后重试"));
   }, [db.session.authenticated]);
 
   // A shared profile URL reopens the same profile sheet after the recipient
@@ -650,10 +676,11 @@ export default function Home() {
   }
 
   if (circles.length === 0 && view !== "create") {
-    return <AccountStartView member={memberById(currentMemberId)} openCircles={openCircles} pendingCircles={db.pendingCircles} onSaved={syncAfterWrite} onJoin={joinCircle} onWithdraw={withdrawRequest} onCreate={openCreateCircle} onLogout={logout}/>;
+    return <>{loadFailed && <SessionRetryBar onRetry={retryLoad}/>}<AccountStartView member={memberById(currentMemberId)} openCircles={openCircles} pendingCircles={db.pendingCircles} onSaved={syncAfterWrite} onJoin={joinCircle} onWithdraw={withdrawRequest} onCreate={openCreateCircle} onLogout={logout}/></>;
   }
 
   return <main className="world-shell">
+    {loadFailed && <SessionRetryBar onRetry={retryLoad}/>}
     <aside className="circle-dock" aria-label="我的圈子地图">
       <button className={`brand-mark ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><BrandGlyph large/><span className="brand-copy"><strong>流动圈</strong><b>FLOW CIRCLE · 了解我们 →</b></span></button>
       <div className="dock-heading"><span>我的地图</span><b>{String(circles.length).padStart(2,"0")}</b></div>
@@ -664,7 +691,7 @@ export default function Home() {
 
     <section className="phone-stage">
       <div className={`app-frame ${view === "about" || view === "create" ? "about-open" : ""}`}>
-        <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><BrandGlyph/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : view === "create" ? "NEW CIRCLE · 创建向导" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : view === "create" ? "创建新圈子" : `你好，${memberById(currentMemberId).name}！`}</h1></div><button className="bell-button" onClick={() => { setOverlay("notifications"); if (db.unreadNotifications > 0) markNotificationsRead(); }} aria-label={`通知${db.unreadNotifications > 0 ? `，${db.unreadNotifications} 条未读` : ""}`}><NotificationIcon/>{db.unreadNotifications > 0 && <i>{db.unreadNotifications > 9 ? "9+" : db.unreadNotifications}</i>}</button><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById(currentMemberId)}/></button></header>
+        <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><BrandGlyph/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : view === "create" ? "NEW CIRCLE · 创建向导" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : view === "create" ? "创建新圈子" : `你好，${memberById(currentMemberId).name}！`}</h1></div><button className="bell-button" onClick={() => setOverlay("notifications")} aria-label={`通知${db.unreadNotifications > 0 ? `，${db.unreadNotifications} 条未读` : ""}`}><NotificationIcon/>{db.unreadNotifications > 0 && <i>{db.unreadNotifications > 9 ? "9+" : db.unreadNotifications}</i>}</button><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById(currentMemberId)}/></button></header>
         {view !== "about" && view !== "create" && <nav className="circle-switcher" aria-label="切换动态范围"><button className={`all-switch ${feedCircleId === "all" && view === "feed" ? "selected" : ""}`} onClick={showAllCircles}><NavIcon kind="feed"/><span>全部圈子</span><b>{posts.length}</b></button>{circles.filter((item) => memberById(currentMemberId).circleIds.includes(item.id)).map((item) => { const account = accountFor(currentMemberId, item.id); return <button key={item.id} className={feedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><CircleGlyph icon={item.short} seed={item.id} size="tiny"/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>}
         <div className="view-content">
           {view === "about" && <AboutView onExplore={showAllCircles} onCreate={openCreateCircle} onCircle={(id) => selectCircle(id, "circle")}/>}
@@ -684,7 +711,7 @@ export default function Home() {
         <nav className="bottom-nav" aria-label="主要导航">
           <button className={view === "feed" ? "active" : ""} onClick={() => setView("feed")}><NavIcon kind="feed"/><small>动态</small></button>
           <button className={view === "discover" ? "active" : ""} onClick={() => setView("discover")}><NavIcon kind="discover"/><small>发现</small></button>
-          <button className="compose-slot" onClick={() => openComposer()} aria-label="记一笔"><NavIcon kind="record"/><small>记一笔</small></button>
+          <button className="compose-slot" onClick={() => openComposer()} aria-label="打开记录菜单"><NavIcon kind="record"/><small>记录</small></button>
           <button className={view === "circle" ? "active" : ""} onClick={() => setView("circle")}><NavIcon kind="circle"/><small>圈子</small></button>
           <button className={view === "me" ? "active" : ""} onClick={() => setView("me")}><NavIcon kind="me"/><small>我的</small></button>
         </nav>
@@ -717,7 +744,7 @@ export default function Home() {
     {overlay === "invite" && <InviteSheet circle={activeCircle} onClose={closeOverlay} onNotice={flash}/>}
     {overlay === "feedFilter" && <FeedFilterSheet active={feedFilter} onSelect={(next) => { setFeedFilter(next); setOverlay(null); }} onClose={() => setOverlay(null)}/>}
     {overlay === "post" && selectedPost && <PostSheet post={selectedPost} onProfile={() => selectedPost.memberId && openProfile(selectedPost.memberId)} onShare={() => openPostShare(selectedPost.id)} onClose={() => setOverlay(null)}/>}
-    {overlay === "notifications" && <NotificationsSheet notifications={db.notifications} onClose={() => setOverlay(null)} onOpen={openNotification}/>}
+    {overlay === "notifications" && <NotificationsSheet notifications={db.notifications} onClose={() => { setOverlay(null); if (db.unreadNotifications > 0) void markNotificationsRead(); }} onOpen={openNotification}/>}
     {overlay === "settings" && <SettingsSheet settings={db.settings} onClose={() => setOverlay(null)} onSaved={async () => { await syncAfterWrite(); flash("公开设置已经保存"); }}/>} 
     {overlay === "circleSettings" && <CircleSettingsSheet circle={activeCircle} onClose={() => setOverlay(null)} onSaved={syncAfterWrite} onNotice={flash}/>}
     {overlay === "editProfile" && <EditProfileSheet member={memberById(currentMemberId)} onClose={() => setOverlay(null)} onSaved={syncAfterWrite} onNotice={flash}/>}
@@ -834,9 +861,9 @@ function ComposeHero({ onCompose }: { onCompose: () => void }) {
 function FeedView({ activeCircle, activeAccount, isAllCircles, posts: list, filter, onCompose, onCircle, onMe, onProfile, onShare, onFilter, onPost }: { activeCircle: Circle; activeAccount: ReturnType<typeof accountFor>; isAllCircles: boolean; posts: Post[]; filter: FeedFilter; onCompose: () => void; onCircle: () => void; onMe: () => void; onProfile: (id?: string) => void; onShare: (id: string) => void; onFilter: () => void; onPost: (id: string) => void }) {
   const labels: Record<FeedFilter,string> = { all: "全部动态", trade: "互助记录", need: "只看需要", offer: "只看提供", card: "好人卡" };
   const myCards = activeDb.goodCards.filter((card) => card.toMemberId === activeDb.currentMemberId && card.visibility === "cross-circle").length;
-  const totalGiven = activeDb.accounts.filter((account) => account.memberId === activeDb.currentMemberId).reduce((sum, account) => sum + account.given, 0);
+  const recordedHelp = activeDb.transactions.filter((item) => item.providerId === activeDb.currentMemberId || item.receiverId === activeDb.currentMemberId).length;
   const scopeTitle = isAllCircles ? "全部圈子" : activeCircle.name;
-  return <><ComposeHero onCompose={onCompose}/><section className="scope-banner"><span>{isAllCircles ? "综合动态" : "当前圈子"}</span><b>{scopeTitle}</b><small>{list.length} 条</small></section><section className="stats-grid" aria-label="当前动态范围概览"><button className="stat-card stat-yellow" onClick={isAllCircles ? onMe : onCircle}><span>{isAllCircles ? "圈子" : "当前额度"}</span><strong>{isAllCircles ? memberById(activeDb.currentMemberId).circleIds.length : `${activeAccount.balance > 0 ? "+" : ""}${activeAccount.balance}`}</strong></button><button className="stat-card stat-pink" onClick={onMe}><span>我给出过</span><strong>{isAllCircles ? totalGiven : activeAccount.given}</strong></button><button className="stat-card stat-blue" onClick={() => onProfile(activeDb.currentMemberId)}><span>好人卡</span><strong>{myCards}</strong></button></section><SectionTitle eyebrow="LIVE FROM THE CIRCLE" title={`${scopeTitle} · ${labels[filter]}`} action={`筛选 · ${list.length}`} onAction={onFilter}/><FeedList posts={list} onProfile={onProfile} onShare={onShare} onPost={onPost}/></>;
+  return <><section className="scope-banner"><span>{isAllCircles ? "综合动态" : "当前圈子"}</span><b>{scopeTitle}</b><small>{list.length} 条</small></section><SectionTitle eyebrow="LIVE FROM THE CIRCLE" title={`${scopeTitle} · ${labels[filter]}`} action={`筛选 · ${list.length}`} onAction={onFilter}/><FeedList posts={list} onProfile={onProfile} onShare={onShare} onPost={onPost}/><ComposeHero onCompose={onCompose}/><section className="stats-grid" aria-label="当前动态范围概览"><button className="stat-card stat-yellow" onClick={isAllCircles ? onMe : onCircle}><span>{isAllCircles ? "圈子" : "当前额度"}</span><strong>{isAllCircles ? memberById(activeDb.currentMemberId).circleIds.length : `${activeAccount.balance > 0 ? "+" : ""}${activeAccount.balance}`}</strong></button><button className="stat-card stat-pink" onClick={onMe}><span>记下的互助</span><strong>{recordedHelp}</strong></button><button className="stat-card stat-blue" onClick={() => onProfile(activeDb.currentMemberId)}><span>好人卡</span><strong>{myCards}</strong></button></section></>;
 }
 
 function DiscoverView({ posts: list, filter, setFilter, openCircles, onJoin, onSpeak, onProfile, onShare, onPost }: { posts: Post[]; filter: DiscoverFilter; setFilter: (filter: DiscoverFilter) => void; openCircles: DiscoverableCircle[]; onJoin: (circle: DiscoverableCircle) => Promise<void>; onSpeak: (intent?: ComposerType) => void; onProfile: (id?: string) => void; onShare: (id: string) => void; onPost: (id: string) => void }) {
@@ -881,20 +908,24 @@ function FeedList({ posts: list, onProfile, onShare, onPost }: { posts: Post[]; 
   return <div className="feed-list">{list.map((post) => <article key={post.id} className={`feed-card feed-${post.kind}`}><header><button className="feed-person" onClick={() => post.memberId ? onProfile(post.memberId) : onPost(post.id)}><Character member={post.memberId ? memberById(post.memberId) : undefined} text={post.memberId ? undefined : post.avatar} color={post.color} variant={post.avatarVariant} small/><span><b>{post.person}</b><small>{post.caption}</small></span></button><Pill color={post.color}>{post.badge}</Pill></header><button className="feed-open" onClick={() => onPost(post.id)}><span className="feed-text">{post.text}</span><span className="chip-row">{post.chips.map((chip) => <i key={chip}>#{chip}</i>)}</span></button><footer><span>{post.meta}</span><span><button onClick={() => onPost(post.id)}>详情</button><button onClick={() => onShare(post.id)}>分享 ↗</button></span></footer></article>)}</div>;
 }
 
-function Modal({ children, onClose, label, wide = false }: { children: React.ReactNode; onClose: () => void; label: string; wide?: boolean }) {
+function Modal({ children, onClose, label, wide = false, className = "" }: { children: React.ReactNode; onClose: () => void; label: string; wide?: boolean; className?: string }) {
   const dialogRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const closeTopDialog = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
       const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
       if (dialogs.at(-1) !== dialogRef.current) return;
-      event.preventDefault();
-      onClose();
+      if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const controls = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])'));
+      if (controls.length === 0) return;
+      const first = controls[0]; const last = controls.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", closeTopDialog);
     return () => document.removeEventListener("keydown", closeTopDialog);
   }, [onClose]);
-  return <div className="modal-backdrop" onMouseDown={onClose}><section ref={dialogRef} className={`sheet ${wide ? "sheet-wide" : ""}`} role="dialog" aria-modal="true" aria-label={label} onMouseDown={(event) => event.stopPropagation()}><button className="close-button" onClick={onClose} aria-label="关闭">×</button>{children}</section></div>;
+  return <div className="modal-backdrop" onMouseDown={onClose}><section ref={dialogRef} className={`sheet ${wide ? "sheet-wide" : ""} ${className}`} role="dialog" aria-modal="true" aria-label={label} onMouseDown={(event) => event.stopPropagation()}><button className="close-button" onClick={onClose} aria-label="关闭">×</button>{children}</section></div>;
 }
 
 function SheetHeading({ eyebrow, title, description, meta, color = "cream", visual }: { eyebrow: string; title: string; description?: React.ReactNode; meta?: React.ReactNode; color?: string; visual?: React.ReactNode }) {
@@ -1001,7 +1032,7 @@ function ComposerSheet({ circleId, intent, setIntent, onClose, onSubmit, onNotic
 
   const accent = intents.find((item) => item.id === intent)?.color ?? "yellow";
 
-  return <Modal onClose={onClose} label="记一笔">
+  return <Modal onClose={onClose} label="记一笔" className="composer-sheet">
     <SheetHeading eyebrow={review ? "发布" : "快速选择"} title={review ? "确认内容" : "记什么？"} color={accent}/>
 
     {!review ? <>
@@ -1018,8 +1049,9 @@ function ComposerSheet({ circleId, intent, setIntent, onClose, onSubmit, onNotic
               <label><span>额度（{circle.currency}）</span><input type="number" min="1" step="1" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="例如 5"/></label>
               <label><span>一句话标题</span><input value={note} maxLength={60} onChange={(e) => setNote(e.target.value)} placeholder="例如：厦门借住一晚"/></label>
               <label><span>发生了什么（可选）</span><textarea value={story} rows={2} onChange={(e) => setStory(e.target.value)} placeholder="聊到半夜，第二天一起吃了早饭"/></label>
-              <label><span>让谁看见</span><select value={recordVisibility} onChange={(e) => setRecordVisibility(e.target.value as typeof recordVisibility)}><option value="public">圈内公开</option><option value="mystery">神秘记录（隐藏双方与故事）</option><option value="private">仅当事人</option></select></label>
-              {!circle.settings.allowNegativeBalance && <p className="soft-note">这个圈子没有开启「允许负余额」，接收方的额度不能记成负数。</p>}
+              <label><span>让谁看见</span><select value={recordVisibility} onChange={(e) => setRecordVisibility(e.target.value as typeof recordVisibility)}><option value="public">圈内公开</option><option value="mystery">神秘记录（其他人只见到一笔互助）</option><option value="private">私密记一笔（仅当事人）</option></select></label>
+              {circle.settings.requireConfirmation && <p className="soft-note">这个圈子的记录要由对方确认后才会入账。</p>}
+              {!circle.settings.allowNegativeBalance && <p className="soft-note">这个圈子需要先有可用额度，才能接受帮助。</p>}
             </>}
 
             {isCard && <>
@@ -1027,7 +1059,7 @@ function ComposerSheet({ circleId, intent, setIntent, onClose, onSubmit, onNotic
               <label><span>让谁看见</span><select value={cardVisibility} onChange={(e) => setCardVisibility(e.target.value as typeof cardVisibility)}><option value="cross-circle">跨圈公开，跟着 TA 走</option><option value="hidden">只给对方看</option></select></label>
             </>}
 
-            <button className="primary-button" onClick={buildDraft}>查看草稿 <b>→</b></button>
+            <div className="composer-submit"><button className="primary-button" onClick={buildDraft}>查看草稿 <b>→</b></button></div>
           </div>)}
 
       {isListing && (myCircles.length === 0 ? <p className="soft-note">先加入或创建一个圈子，才能发布需要 / 提供。</p> : <div className="manual-form">
@@ -1038,8 +1070,8 @@ function ComposerSheet({ circleId, intent, setIntent, onClose, onSubmit, onNotic
         <label><span>参考额度（可选）</span><input value={reference} onChange={(e) => setReference(e.target.value)} placeholder={`约 10 ${circle.currency}，也可以协商`}/></label>
         <span className="form-label">在哪些圈子里出现</span>
         <div className="circle-picker">{myCircles.map((item) => <button key={item.id} className={listingCircleIds.includes(item.id) ? "active" : ""} onClick={() => toggleListingCircle(item.id)}><CircleGlyph icon={item.short} seed={item.id} size="tiny"/>{item.name}</button>)}</div>
-        <label className="inline-check"><input type="checkbox" checked={crossCircle} onChange={(e) => setCrossCircle(e.target.checked)}/><span><b>跨圈公开</b></span></label>
-        <button className="primary-button" onClick={buildDraft}>查看草稿 <b>→</b></button>
+        <label className="inline-check"><input type="checkbox" checked={crossCircle} onChange={(e) => setCrossCircle(e.target.checked)}/><span><b>跨圈公开</b><small>会出现在你加入的 {myCircles.length} 个圈子里。</small></span></label>
+        <div className="composer-submit"><button className="primary-button" onClick={buildDraft}>查看草稿 <b>→</b></button></div>
       </div>)}
     </> : <>
       <div className={`draft-card draft-${accent}`}><Pill color="cream">草稿 · 可修改</Pill><h3>{review.title}</h3><p>{review.detail}</p><div>{review.footer}</div></div>
@@ -1379,7 +1411,7 @@ function CreateCircleView({ onExit, onDone }: { onExit: () => void; onDone: (inp
     <div className="create-panel">
       {step === 1 && <><div className="create-heading"><span>STEP 01 · IDENTITY</span><h2>圈子身份</h2></div><div className="create-form-grid"><label className="wide"><span>圈子名称</span><input value={name} maxLength={40} placeholder="例如：周末手作营地" onChange={(event) => setName(event.target.value)}/></label><label><span>互助额度名称</span><input value={currency} maxLength={20} placeholder="例如：泡泡" onChange={(event) => setCurrency(event.target.value)}/></label><label className="wide"><span>一句话介绍</span><textarea value={tagline} maxLength={120} placeholder="一起做东西，也一起分享工具、经验和时间。" onChange={(event) => setTagline(event.target.value)}/></label></div><div className="circle-icon-picker"><div className="circle-icon-picker-heading"><span className="form-label">选择圈子图案</span></div>{CIRCLE_ICON_GROUPS.map((group) => <section key={group.label}><header><b>{group.label}</b></header><div>{group.keys.map((key) => <button key={key} type="button" className={short === key ? "selected" : ""} onClick={() => setShort(key)} aria-label={`选择${CIRCLE_ICON_LABELS[key]}圈子图案`}><CircleGlyph icon={key} seed={key} size="small"/><span>{CIRCLE_ICON_LABELS[key]}</span></button>)}</div></section>)}</div></>}
 
-      {step === 2 && <><div className="create-heading"><span>STEP 02 · MUTUAL CREDIT</span><h2>互助设置</h2></div><div className="mechanism-card"><div className="mechanism-icon">＋<br/>−</div><div><Pill color="yellow">互助账户</Pill><h3>成员共同记账</h3></div><b>已选择</b></div><div className="reference-editor"><div><span>协商参考</span><input value={referenceName} placeholder="一小时协作" onChange={(event) => setReferenceName(event.target.value)}/></div><div><span>大约多少额度</span><input value={referenceValue} placeholder={`约 5 ${unit}`} onChange={(event) => setReferenceValue(event.target.value)}/></div></div><span className="form-label">记账规则</span><div className="toggle-list"><label><span><b>允许负余额</b><small>可以先接受帮助</small></span><input type="checkbox" checked={allowNegative} onChange={(event) => setAllowNegative(event.target.checked)}/></label><label><span><b>记录需要对方确认</b><small>确认后入账</small></span><input type="checkbox" checked={requireConfirmation} onChange={(event) => setRequireConfirmation(event.target.checked)}/></label><label><span><b>允许拒绝 / 更正</b><small>更改后重新计算</small></span><input type="checkbox" checked={allowRejectCorrect} onChange={(event) => setAllowRejectCorrect(event.target.checked)}/></label></div></>}
+      {step === 2 && <><div className="create-heading"><span>STEP 02 · MUTUAL CREDIT</span><h2>互助设置</h2></div><div className="mechanism-card"><div className="mechanism-icon">＋<br/>−</div><div><Pill color="yellow">互助账户</Pill><h3>成员共同记账</h3></div><b>已选择</b></div><div className="reference-editor"><div><span>协商参考</span><input value={referenceName} placeholder="一小时协作" onChange={(event) => setReferenceName(event.target.value)}/></div><div><span>大约多少额度</span><input value={referenceValue} placeholder={`约 5 ${unit}`} onChange={(event) => setReferenceValue(event.target.value)}/></div></div><span className="form-label">记账规则</span><div className="toggle-list"><label><span><b>接受帮助可以先记成负数</b><small>没人先给你垫，也能先接受帮助。</small></span><input type="checkbox" checked={allowNegative} onChange={(event) => setAllowNegative(event.target.checked)}/></label><label><span><b>记录需要对方确认</b><small>确认后入账</small></span><input type="checkbox" checked={requireConfirmation} onChange={(event) => setRequireConfirmation(event.target.checked)}/></label><label><span><b>允许拒绝 / 更正</b><small>更改后重新计算</small></span><input type="checkbox" checked={allowRejectCorrect} onChange={(event) => setAllowRejectCorrect(event.target.checked)}/></label></div></>}
 
       {step === 3 && <><div className="create-heading"><span>STEP 03 · GOVERNANCE</span><h2>成员与边界</h2></div><span className="form-label">新成员怎么加入</span><div className="create-choice-row two"><button className={joining === "direct" ? "active" : ""} onClick={() => setJoining("direct")}><b>受邀直接加入</b></button><button className={joining === "approval" ? "active" : ""} onClick={() => setJoining("approval")}><b>管理员审批</b></button></div><label className="typing-box"><span>圈子约定（一行一条，最多 10 条）</span><textarea rows={5} value={rules} onChange={(event) => setRules(event.target.value)} placeholder={"可以开口，也可以拒绝\n敏感互助可以不记录\n成员可以随时暂停或退出"}/><small className={ruleError ? "field-count over" : "field-count"}>{ruleList.length} / 10</small></label></>}
 
@@ -1444,6 +1476,8 @@ function NotificationsSheet({ notifications, onClose, onOpen }: { notifications:
       case "joined": return { badge: "新成员", color: "green", line: n.text === "owner_transferred" ? `${who} 把${where ?? "圈子"}的圈主转让给了你` : `${who} 加入了${where ?? "你的圈子"}`, destination: "circle", actionLabel: "查看圈子" };
       case "invite": {
         if (!n.amount) return { badge: "待你处理", color: "yellow", line: `${who} 邀请你加入${where ?? "一个圈子"}`, destination: "circle", actionLabel: "查看圈子" };
+        const correction = activeDb.transactions.find((item) => item.circleId === n.circleId && item.pendingCorrection?.proposedById === n.actorId && item.pendingCorrection.amount === n.amount);
+        if (correction) return { badge: "更正提议", color: "blue", line: `${who} 提议把「${correction.title}」改成 ${n.amount} ${unit}，等你确认`, destination: "transactions", actionLabel: "去处理" };
         const candidates = activeDb.transactions.filter((transaction) => transaction.circleId === n.circleId && transaction.createdById === n.actorId && transaction.amount === n.amount);
         const transaction = candidates.find((item) => item.title === n.note) ?? candidates.find((item) => item.status === "pending") ?? candidates[0];
         if (transaction?.status === "pending") return { badge: "待你处理", color: "yellow", line: `${who} 记了一笔 ${n.amount} ${unit}${n.note ? `：${n.note}` : ""}，等你确认`, destination: "transactions", actionLabel: "去确认" };
@@ -1462,7 +1496,7 @@ function NotificationsSheet({ notifications, onClose, onOpen }: { notifications:
     <SheetHeading eyebrow="通知" title="需要处理的事" color="yellow"/>
     {notifications.length === 0
       ? <div className="empty-archive">还没有通知</div>
-      : <div className="archive-list notification-list">{notifications.map((n) => { const { badge, color, line, destination, actionLabel } = describe(n); return <article key={n.id} className={n.read ? "" : "unread"}><header><Pill color={color}>{badge}</Pill><small>{n.createdAt}</small></header><p>{line}</p>{destination && actionLabel && <button className="notification-action" onClick={() => onOpen(destination, n.circleId)}>{actionLabel} →</button>}</article>; })}</div>}
+      : <div className="archive-list notification-list">{notifications.map((n) => { const { badge, color, line, destination, actionLabel } = describe(n); const open = () => destination && onOpen(destination, n.circleId); return <article key={n.id} className={n.read ? "" : "unread"}>{destination ? <button className="notification-item" onClick={open}><header><Pill color={color}>{badge}</Pill><small>{n.createdAt}</small></header><p>{line}</p><span className="notification-action">{actionLabel} →</span></button> : <><header><Pill color={color}>{badge}</Pill><small>{n.createdAt}</small></header><p>{line}</p></>}</article>; })}</div>}
   </Modal>;
 }
 
@@ -1529,7 +1563,7 @@ function CircleSettingsSheet({ circle, onClose, onSaved, onNotice }: { circle: C
     </div>
     <span className="form-label">记账规则</span>
     <div className="toggle-list">
-      <label><span><b>允许负余额</b><small>可以先接受帮助</small></span><input type="checkbox" checked={negative} onChange={(e) => setNegative(e.target.checked)}/></label>
+      <label><span><b>接受帮助可以先记成负数</b><small>没人先给你垫，也能先接受帮助。</small></span><input type="checkbox" checked={negative} onChange={(e) => setNegative(e.target.checked)}/></label>
       <label><span><b>记录需要对方确认</b><small>确认后入账</small></span><input type="checkbox" checked={confirmation} onChange={(e) => setConfirmation(e.target.checked)}/></label>
       <label><span><b>允许拒绝 / 更正</b><small>更改后重新计算</small></span><input type="checkbox" checked={amend} onChange={(e) => setAmend(e.target.checked)}/></label>
     </div>

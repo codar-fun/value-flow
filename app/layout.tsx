@@ -5,7 +5,10 @@ import "./globals.css";
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  // Loopback hosts are plain http even without a forwarded header; guessing
+  // https for them makes the browser request https://127.0.0.1/... and fail.
+  const loopback = /^(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(host);
+  const protocol = requestHeaders.get("x-forwarded-proto") ?? (loopback ? "http" : "https");
   const metadataBase = new URL(`${protocol}://${host}`);
   const title = "流动圈｜让帮助被记得";
   const description = "记录需要、提供、互助额度和好人卡的轻量社区记忆。可以问，也可以拒绝。";

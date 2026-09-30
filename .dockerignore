@@ -1,8 +1,37 @@
-node_modules
-dist
-.wrangler
-.git
-.env
-.env.*
-*.log
-.DS_Store
+# Every pattern below is written with an explicit `**/` prefix so it matches at
+# any depth and behaves the same in Docker and in the static check in
+# tests/build-context.test.mjs.
+
+# Dependencies: reinstalled inside the build stage from the lockfile.
+**/node_modules
+**/.pnpm-store
+
+# Output of a local run. The image builds its own.
+**/dist
+**/.wrangler
+**/.vinext
+**/.next
+**/out
+
+# Local secrets and per-developer env files. `.env.example` and
+# `.dev.vars.example` are only templates, but nothing at runtime needs them —
+# excluding the whole family is the safer default.
+**/.env
+**/.env.*
+**/.dev.vars
+**/.dev.vars.*
+**/*.pem
+
+# Review and agent working material: screenshots, mailbox credentials,
+# browser sessions, scratch scripts, partial downloads.
+**/.review-tmp
+**/.workbuddy
+**/.agents
+**/.codex
+**/.openai
+**/docs/visual-references
+**/*.下载
+**/*.tsbuildinfo
+**/*.log
+**/.DS_Store
+**/.git

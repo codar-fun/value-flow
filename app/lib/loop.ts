@@ -38,6 +38,30 @@ const AT = "loop_at";
 const AT_EXP = "loop_at_exp";
 const SKEW = 60; // refresh this many seconds before the access token expires
 
+// Every upstream call gets a deadline. Without one a hung loop-backend keeps
+// the request open indefinitely and the page just spins.
+const DEFAULT_UPSTREAM_TIMEOUT_MS = 10_000;
+
+export function upstreamTimeoutMs(): number {
+  const raw = Number(runtimeEnv("LOOP_UPSTREAM_TIMEOUT_MS"));
+  return Number.isInteger(raw) && raw > 0 ? raw : DEFAULT_UPSTREAM_TIMEOUT_MS;
+}
+
+// `error.code` values the backend uses to say "this credential is dead". Only
+// these (or a bare 401/403 with no code) may end the session. Anything else —
+// rate limiting, a 5xx, a gateway blip, an unknown code — is temporary and
+// must leave the person signed in.
+const INVALID_CREDENTIAL_CODES = new Set([
+  "invalid_token",
+  "token_expired",
+  "token_revoked",
+  "invalid_grant",
+  "refresh_token_expired",
+  "refresh_token_invalid",
+  "session_revoked",
+  "authentication_required",
+]);
+
 export type Cookie = { name: string; value: string; maxAge: number };
 
 // ─── cookie plumbing ────────────────────────────────────────────────────────
@@ -84,7 +108,22 @@ export function clearedCookies(): Cookie[] {
 
 // ─── token resolution ───────────────────────────────────────────────────────
 
-type Resolved = { accessToken: string | null; cookies: Cookie[] };
+// What the last token resolution concluded about the caller's session.
+//   ok         – a usable access token is in hand
+//   anonymous  – no session cookies at all; nothing was cleared
+//   invalid    – the backend confirmed the credential is dead; cookies cleared
+//   temporary  – we could not confirm anything (timeout, network, 429, 5xx,
+//                malformed body); the session is left untouched
+export type SessionOutcome = "ok" | "anonymous" | "invalid" | "temporary";
+
+export type LoopSession = {
+  accessToken: string | null;
+  outcome: SessionOutcome;
+  // Diagnostics only: never shown to the browser verbatim.
+  reason?: string;
+};
+
+type Resolved = { session: LoopSession; cookies: Cookie[] };
 
 // loop rotates the refresh token on every use, so two requests that arrive
 // together with an expired access token would both spend the *same* RT: the
@@ -94,24 +133,80 @@ type Resolved = { accessToken: string | null; cookies: Cookie[] };
 // so collapse overlapping refreshes of one RT onto a single in-flight call.
 const inFlight = new Map<string, Promise<Resolved>>();
 
+function describeFetchFailure(error: unknown): string {
+  if (error instanceof Error) {
+    if (error.name === "TimeoutError") return "timeout";
+    return error.name || "fetch_failed";
+  }
+  return "fetch_failed";
+}
+
+// Best-effort read of `error.code` from a loop error response.
+async function errorCode(res: Response): Promise<string | null> {
+  const data = (await res.json().catch(() => null)) as
+    | { error?: { code?: string } | string }
+    | null;
+  const error = data?.error;
+  if (!error) return null;
+  if (typeof error === "string") return error;
+  return typeof error.code === "string" ? error.code : null;
+}
+
 async function refresh(rt: string): Promise<Resolved> {
-  const res = await fetch(`${loopApiBase()}/auth/refresh`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ refresh_token: rt }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${loopApiBase()}/auth/refresh`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ refresh_token: rt }),
+      signal: AbortSignal.timeout(upstreamTimeoutMs()),
+    });
+  } catch (error) {
+    // Network loss, DNS failure or our own deadline. Nothing here says the
+    // credential is bad, so keep the session and let the caller retry.
+    return {
+      session: { accessToken: null, outcome: "temporary", reason: `refresh_${describeFetchFailure(error)}` },
+      cookies: [],
+    };
+  }
 
-  if (!res.ok) return { accessToken: null, cookies: clearedCookies() };
+  if (res.status === 401 || res.status === 403) {
+    const code = await errorCode(res);
+    // An auth failure we don't recognise is not proof the session is dead —
+    // guessing here is what used to log people out during backend blips.
+    if (code && !INVALID_CREDENTIAL_CODES.has(code)) {
+      return {
+        session: { accessToken: null, outcome: "temporary", reason: `refresh_unconfirmed_code_${code}` },
+        cookies: [],
+      };
+    }
+    return {
+      session: { accessToken: null, outcome: "invalid", reason: code ? `refresh_${code}` : "refresh_unauthorized" },
+      cookies: clearedCookies(),
+    };
+  }
 
-  const data = (await res.json()) as {
-    access_token: string;
-    refresh_token: string;
-    expires_in: number;
-  };
+  // 429 and 5xx are exactly the transient conditions that used to be treated
+  // as a logout.
+  if (!res.ok) {
+    return { session: { accessToken: null, outcome: "temporary", reason: `refresh_status_${res.status}` }, cookies: [] };
+  }
+
+  const data = (await res.json().catch(() => null)) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+  } | null;
+
+  // A 200 without a usable pair is a broken upstream response, not a
+  // credential verdict.
+  if (!data?.access_token || !data.refresh_token) {
+    return { session: { accessToken: null, outcome: "temporary", reason: "refresh_malformed_body" }, cookies: [] };
+  }
 
   return {
-    accessToken: data.access_token,
-    cookies: sessionCookies(data.refresh_token, data.access_token, data.expires_in),
+    session: { accessToken: data.access_token, outcome: "ok" },
+    cookies: sessionCookies(data.refresh_token, data.access_token, data.expires_in || 900),
   };
 }
 
@@ -122,10 +217,10 @@ export async function ensureAccessToken(request: Request): Promise<Resolved> {
   const exp = Number(readCookie(request, AT_EXP) || 0);
   const now = Math.floor(Date.now() / 1000);
 
-  if (at && exp > now + SKEW) return { accessToken: at, cookies: [] };
+  if (at && exp > now + SKEW) return { session: { accessToken: at, outcome: "ok" }, cookies: [] };
 
   const rt = readCookie(request, RT);
-  if (!rt) return { accessToken: null, cookies: [] };
+  if (!rt) return { session: { accessToken: null, outcome: "anonymous" }, cookies: [] };
 
   // Both callers get the same new pair, so whichever Set-Cookie lands last
   // still leaves the browser holding a consistent, live session.
@@ -149,21 +244,45 @@ export type LoopCall = (
 // `null` when the caller is unauthenticated so it can decide the response.
 export async function withLoop(
   request: Request,
-  handler: (token: string | null, call: LoopCall) => Promise<Response>,
+  handler: (token: string | null, call: LoopCall, session: LoopSession) => Promise<Response>,
 ): Promise<Response> {
-  const { accessToken, cookies } = await ensureAccessToken(request);
+  const { session, cookies } = await ensureAccessToken(request);
 
-  const call: LoopCall = (path, init = {}) =>
-    fetch(`${loopApiBase()}${path}`, {
-      ...init,
-      headers: {
-        "content-type": "application/json",
-        ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
-        ...(init.headers || {}),
-      },
-    });
+  // We could not confirm who the caller is. Hand back a retryable error
+  // instead of an anonymous world: falling through to "signed out" here is
+  // what made a backend blip look like a forced logout.
+  if (session.outcome === "temporary") {
+    return Response.json(
+      { error: "暂时无法确认登录状态，请稍后重试", code: "session_unavailable" },
+      { status: 503, headers: { "cache-control": "no-store" } },
+    );
+  }
 
-  const response = await handler(accessToken, call);
+  const accessToken = session.accessToken;
+
+  const call: LoopCall = async (path, init = {}) => {
+    try {
+      return await fetch(`${loopApiBase()}${path}`, {
+        ...init,
+        headers: {
+          "content-type": "application/json",
+          ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+          ...(init.headers || {}),
+        },
+        signal: init.signal ?? AbortSignal.timeout(upstreamTimeoutMs()),
+      });
+    } catch {
+      // Timeout or lost connection. For a write the server may already have
+      // applied the change, so this is deliberately *not* phrased as "please
+      // try again" — a blind replay would double a ledger entry.
+      return Response.json(
+        { error: "网络连接中断，请先确认结果再重试", code: "upstream_unreachable" },
+        { status: 504, headers: { "cache-control": "no-store" } },
+      );
+    }
+  };
+
+  const response = await handler(accessToken, call, session);
   return attachCookies(response, cookies);
 }
 

@@ -148,6 +148,9 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /markNotificationsRead/);
   assert.match(page, /stillWaiting/);
   assert.match(page, /notification-action/);
+  assert.match(page, /pendingCorrection\?\.proposedById/);
+  assert.match(page, /更正提议/);
+  assert.match(page, /notification-item/);
   assert.match(page, /这次入圈申请已经处理/);
   assert.match(page, /这笔记录已经处理，不需要再确认/);
   assert.match(types, /Notification/);
@@ -212,10 +215,14 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /timeAndPlace/);
   assert.match(page, /onEditProfile/);
   // Modal escape and editable reference lists avoid browser-native dead ends.
-  assert.match(page, /event\.key !== "Escape"/);
+  assert.match(page, /event\.key === "Escape"/);
+  assert.match(page, /event\.key !== "Tab"/);
   assert.match(page, /removeReference/);
   assert.match(page, /互助额度名称不能为空/);
   assert.match(css, /\.feed-empty/);
+  assert.match(css, /safe-area-inset-bottom/);
+  assert.match(css, /\.composer-submit \{ position: sticky/);
+  assert.match(css, /\.world-shell \{ width: min\(1008px/);
   // Share posters can be saved as real PNG files with their QR code intact.
   assert.match(page, /savePosterImage/);
   assert.match(page, /toPng/);
