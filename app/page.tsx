@@ -364,6 +364,8 @@ export default function Home() {
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [selectedMemberId, setSelectedMemberId] = useState("");
   const [profileTab, setProfileTab] = useState<ProfileTab>("cards");
+  // The record a notification pointed at; the profile archive scrolls to it.
+  const [focusRecordId, setFocusRecordId] = useState<string | null>(null);
   const [selectedPostId, setSelectedPostId] = useState("");
   const [feedFilter, setFeedFilter] = useState<FeedFilter>("all");
   const [discoverFilter, setDiscoverFilter] = useState<DiscoverFilter>("all");
@@ -652,7 +654,7 @@ export default function Home() {
     setSelectedPostId(id); setOverlay("postShare");
   }
 
-  function openNotification(destination: NotificationDestination, targetCircleId?: string) {
+  function openNotification(destination: NotificationDestination, targetCircleId?: string, recordId?: string) {
     if (targetCircleId && circles.some((circle) => circle.id === targetCircleId)) {
       setCircleId(targetCircleId);
       setFeedCircleId(targetCircleId);
@@ -661,6 +663,7 @@ export default function Home() {
     if (destination === "circle") { setView("circle"); setOverlay(null); return; }
     setSelectedMemberId(currentMemberId);
     setProfileTab(destination === "cards" ? "cards" : "transactions");
+    setFocusRecordId(destination === "transactions" && recordId ? recordId : null);
     setOverlay("profile");
   }
 
@@ -738,7 +741,7 @@ export default function Home() {
       setOverlay(null); flash(canShare?"已经交给系统分享":"个人档案链接已复制，可以发到微信群");
     }}/>} 
     {overlay === "postShare" && selectedPost && <PostShareSheet post={selectedPost} shareUrl={typeof window === "undefined" ? "" : `${window.location.origin}/?post=${encodeURIComponent(selectedPost.id)}`} onClose={() => setOverlay(null)} onNotice={flash}/>}
-    {overlay === "profile" && selectedMember && <ProfileSheet member={selectedMember} activeCircleId={activeCircle.id} initialTab={profileTab} onClose={() => setOverlay(null)} onNotice={flash} onChanged={syncAfterWrite}/>} 
+    {overlay === "profile" && selectedMember && <ProfileSheet member={selectedMember} activeCircleId={activeCircle.id} initialTab={profileTab} focusRecordId={focusRecordId} onClose={() => { setOverlay(null); setFocusRecordId(null); }} onNotice={flash} onChanged={syncAfterWrite}/>} 
     {overlay === "rules" && <RulesSheet circle={activeCircle} onClose={() => setOverlay(null)}/>}
     {overlay === "members" && <MembersSheet circle={activeCircle} requests={db.joinRequests.filter((r) => r.circleId === activeCircle.id)} isOwner={isCircleOwner} onProfile={openProfile} onInvite={() => openSubSheet("invite")} onClose={closeOverlay} onResolve={resolveRequest} onLeave={leaveCircle} onTransfer={transferOwner}/>}
     {overlay === "invite" && <InviteSheet circle={activeCircle} onClose={closeOverlay} onNotice={flash}/>}
@@ -861,7 +864,7 @@ function ComposeHero({ onCompose }: { onCompose: () => void }) {
 function FeedView({ activeCircle, activeAccount, isAllCircles, posts: list, filter, onCompose, onCircle, onMe, onProfile, onShare, onFilter, onPost }: { activeCircle: Circle; activeAccount: ReturnType<typeof accountFor>; isAllCircles: boolean; posts: Post[]; filter: FeedFilter; onCompose: () => void; onCircle: () => void; onMe: () => void; onProfile: (id?: string) => void; onShare: (id: string) => void; onFilter: () => void; onPost: (id: string) => void }) {
   const labels: Record<FeedFilter,string> = { all: "全部动态", trade: "互助记录", need: "只看需要", offer: "只看提供", card: "好人卡" };
   const myCards = activeDb.goodCards.filter((card) => card.toMemberId === activeDb.currentMemberId && card.visibility === "cross-circle").length;
-  const recordedHelp = activeDb.transactions.filter((item) => item.providerId === activeDb.currentMemberId || item.receiverId === activeDb.currentMemberId).length;
+  const recordedHelp = activeDb.transactions.filter((item) => item.status !== "rejected" && (item.providerId === activeDb.currentMemberId || item.receiverId === activeDb.currentMemberId)).length;
   const scopeTitle = isAllCircles ? "全部圈子" : activeCircle.name;
   return <><section className="scope-banner"><span>{isAllCircles ? "综合动态" : "当前圈子"}</span><b>{scopeTitle}</b><small>{list.length} 条</small></section><SectionTitle eyebrow="LIVE FROM THE CIRCLE" title={`${scopeTitle} · ${labels[filter]}`} action={`筛选 · ${list.length}`} onAction={onFilter}/><FeedList posts={list} onProfile={onProfile} onShare={onShare} onPost={onPost}/><ComposeHero onCompose={onCompose}/><section className="stats-grid" aria-label="当前动态范围概览"><button className="stat-card stat-yellow" onClick={isAllCircles ? onMe : onCircle}><span>{isAllCircles ? "圈子" : "当前额度"}</span><strong>{isAllCircles ? memberById(activeDb.currentMemberId).circleIds.length : `${activeAccount.balance > 0 ? "+" : ""}${activeAccount.balance}`}</strong></button><button className="stat-card stat-pink" onClick={onMe}><span>记下的互助</span><strong>{recordedHelp}</strong></button><button className="stat-card stat-blue" onClick={() => onProfile(activeDb.currentMemberId)}><span>好人卡</span><strong>{myCards}</strong></button></section></>;
 }
@@ -899,7 +902,7 @@ function MeView({ onShare, onCard, onCreate, onSettings, onEditProfile, onCircle
   const activeNeed = myListings.find((item) => item.type === "need" && item.status === "active");
   const activeOffer = myListings.find((item) => item.type === "offer" && item.status === "active");
   const cardCount = activeDb.goodCards.filter((card) => card.toMemberId === me.id && card.visibility === "cross-circle").length;
-  const transactionCount = activeDb.transactions.filter((item) => item.providerId === me.id || item.receiverId === me.id).length;
+  const transactionCount = activeDb.transactions.filter((item) => item.status !== "rejected" && (item.providerId === me.id || item.receiverId === me.id)).length;
   return <><section className="profile-hero"><Character member={me}/><div><Pill color="cream">{me.handle}</Pill><h2>{me.name}</h2><p>{me.bio || "还没有写介绍"}</p></div><button onClick={onEditProfile}>编辑资料</button></section><section className="passport-card"><div><span>COMMUNITY PASSPORT</span><h3>{cardCount} 张好人卡</h3><p>“{activeDb.goodCards.find((card) => card.toMemberId === me.id)?.story ?? "还没有好人卡。"}”</p></div><button onClick={onCard}>＋ 发好人卡</button></section><SectionTitle eyebrow="FULL ARCHIVE" title="我的档案"/><div className="archive-grid"><button onClick={() => onArchive("cards")}><strong>{cardCount}</strong><span>好人卡</span></button><button onClick={() => onArchive("listings")}><strong>{myListings.length}</strong><span>需要 / 提供</span></button><button onClick={() => onArchive("transactions")}><strong>{transactionCount}</strong><span>互助记录</span></button></div><SectionTitle eyebrow="OPEN NOW" title="现在的需要 / 提供" action="公开设置" onAction={onSettings}/><div className="my-board"><button className="my-need" onClick={() => onArchive("listings")}><Pill color="pink">我想要</Pill><h3>{activeNeed?.title ?? "还没有发布"}</h3>{activeNeed && <span>{activeNeed.visibility === "cross-circle" ? "跨圈公开" : "圈内可见"}</span>}</button><button className="my-offer" onClick={() => onArchive("listings")}><Pill color="green">我可以给</Pill><h3>{activeOffer?.title ?? "还没有发布"}</h3>{activeOffer && <span>{activeOffer.circleIds.length} 个圈可见</span>}</button></div><SectionTitle eyebrow="MY CIRCLES" title="我的圈子" action="创建新圈" onAction={onCreate}/><div className="my-circles">{circles.filter((circle) => me.circleIds.includes(circle.id)).map((circle) => { const account = accountFor(me.id, circle.id); return <button className="my-circle" key={circle.id} onClick={() => onCircle(circle.id)}><CircleGlyph icon={circle.short} seed={circle.id} size="small"/><span><b>{circle.name}</b><small>{circle.currency} · {circle.members} 人</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div><div className="me-actions"><button className="secondary-button" onClick={onShare}>分享档案</button><button className="text-link" onClick={onLogout}>退出登录</button></div></>;
 }
 
@@ -993,7 +996,10 @@ function ComposerSheet({ circleId, intent, setIntent, onClose, onSubmit, onNotic
         const receiverId = direction === "received" ? me : other.id;
         const heading = note.trim() || (direction === "received" ? `${other.name}帮了我` : `我帮了${other.name}`);
         setReview({
-          input: { intent: "record", circleId: circle.id, providerId, receiverId, amount: amt, title: heading, story: story.trim(), visibility: recordVisibility, tags: ["互助"] },
+          // One key per draft: retrying 确认发布 after a lost response reuses it,
+          // so the backend returns the record it already posted instead of
+          // posting the amount a second time. Editing builds a new draft/key.
+          input: { intent: "record", circleId: circle.id, providerId, receiverId, amount: amt, title: heading, story: story.trim(), visibility: recordVisibility, tags: ["互助"], idempotencyKey: crypto.randomUUID() },
           title: heading,
           detail: story.trim() || heading,
           footer: `${memberById(providerId)?.name} +${amt} · ${memberById(receiverId)?.name} −${amt} （${circle.currency}）`,
@@ -1141,7 +1147,10 @@ function PostShareSheet({ post, shareUrl, onClose, onNotice }: { post: Post; sha
   </Modal>;
 }
 
-function ProfileSheet({ member, activeCircleId, initialTab, onClose, onNotice, onChanged }: { member: Member; activeCircleId: string; initialTab: ProfileTab; onClose: () => void; onNotice: (message: string) => void; onChanged: () => Promise<void> }) {
+function ProfileSheet({ member, activeCircleId, initialTab, focusRecordId, onClose, onNotice, onChanged }: { member: Member; activeCircleId: string; initialTab: ProfileTab; focusRecordId?: string | null; onClose: () => void; onNotice: (message: string) => void; onChanged: () => Promise<void> }) {
+  // Opened from a notification: bring that one record into view.
+  const focusedRef = useRef<HTMLElement | null>(null);
+  useEffect(() => { focusedRef.current?.scrollIntoView({ block: "center" }); }, [focusRecordId]);
   const [contact, setContact] = useState(false);
   const [tab, setTab] = useState<ProfileTab>(initialTab);
   const [transactionDialog, setTransactionDialog] = useState<TransactionDialog | null>(null);
@@ -1246,7 +1255,8 @@ function ProfileSheet({ member, activeCircleId, initialTab, onClose, onNotice, o
       const canAmend = isSelf && circle.settings.allowRejectCorrect && transaction.status !== "rejected";
       const proposal = isSelf ? transaction.pendingCorrection : null;
       const mine = proposal?.proposedById === activeDb.currentMemberId;
-      return <article key={transaction.id}>
+      const focused = transaction.id === focusRecordId;
+      return <article key={transaction.id} className={focused ? "focused" : undefined} ref={focused ? focusedRef : undefined}>
         <header><div>
           <Pill color={transaction.visibility === "private" ? "blue" : "yellow"}>{transaction.visibility === "private" ? "仅自己可见" : transaction.visibility === "mystery" ? "神秘记录" : "圈内公开"}</Pill>
           <span className={`status status-${transaction.status}`}>{transactionStatus[transaction.status]}</span>
@@ -1454,14 +1464,35 @@ function PostSheet({ post, onProfile, onShare, onClose }: { post: Post; onProfil
   return <Modal onClose={onClose} label="动态详情"><SheetHeading eyebrow={post.badge} title={post.person} description={post.caption} color={post.color} visual={<Character member={post.memberId ? memberById(post.memberId) : undefined} text={post.memberId ? undefined : post.avatar} color={post.color} variant={post.avatarVariant} small/>}/><div className={`post-detail detail-${post.color}`}><p className="post-detail-copy">{post.text}</p><div className="chip-row">{post.chips.map((chip) => <span key={chip}>#{chip}</span>)}</div></div><div className="detail-meta">{details.map((detail) => <div key={detail.label}><span>{detail.label}</span><b>{detail.value}</b></div>)}</div><div className="sheet-actions">{post.memberId ? <button className="secondary-button" onClick={onProfile}>成员主页</button> : <button className="secondary-button" onClick={onClose}>关闭</button>}<button className="primary-button" onClick={onShare}>分享</button></div></Modal>;
 }
 
-function NotificationsSheet({ notifications, onClose, onOpen }: { notifications: AppDatabase["notifications"]; onClose: () => void; onOpen: (destination: NotificationDestination, circleId?: string) => void }) {
+function NotificationsSheet({ notifications, onClose, onOpen }: { notifications: AppDatabase["notifications"]; onClose: () => void; onOpen: (destination: NotificationDestination, circleId?: string, recordId?: string) => void }) {
   function describe(n: AppDatabase["notifications"][number]): { badge: string; color: Color; line: string; destination?: NotificationDestination; actionLabel?: string } {
     const actor = memberById(n.actorId);
     const who = isKnown(actor) ? actor.name : "有人";
     const circle = circleById(n.circleId);
     const where = circle?.name;
     const unit = circle?.currency ?? "额度";
+    // Record events name their record; older ones are matched heuristically below.
+    const record = n.recordId ? activeDb.transactions.find((item) => item.id === n.recordId) : undefined;
+    const named = record?.title ? `「${record.title}」` : "这笔记录";
+    const settled = (t: Transaction | undefined) => {
+      if (t?.status === "rejected") return { badge: "已撤销", color: "blue" as Color, line: `${who} 的这笔记录已经撤销，不需要再确认` };
+      if (t?.status === "corrected") return { badge: "已更正", color: "green" as Color, line: `${who} 的这笔记录已按更正后的额度入账`, destination: "transactions" as const, actionLabel: "查看记录" };
+      if (t?.status === "confirmed") return { badge: "已确认", color: "green" as Color, line: `${who} 的这笔记录已经确认入账`, destination: "transactions" as const, actionLabel: "查看记录" };
+      return { badge: "已处理", color: "blue" as Color, line: `${who} 的这笔记录已经处理，不需要再确认` };
+    };
     switch (n.kind) {
+      case "record_confirmation_requested":
+        if (record?.status === "pending") return { badge: "待你处理", color: "yellow", line: `${who} 记了一笔 ${n.amount} ${unit}${n.note ? `：${n.note}` : ""}，等你确认`, destination: "transactions", actionLabel: "去确认" };
+        return settled(record);
+      case "correction_proposed":
+        if (record?.pendingCorrection && record.pendingCorrection.proposedById === n.actorId) return { badge: "更正提议", color: "blue", line: `${who} 提议把${named}改成 ${n.amount} ${unit}，等你确认`, destination: "transactions", actionLabel: "去处理" };
+        return { badge: "已处理", color: "blue", line: `${who} 对${named}的更正提议已经处理`, destination: record ? "transactions" : undefined, actionLabel: "查看记录" };
+      case "correction_resolved": {
+        const outcome = n.text === "accepted" ? `接受了你的更正，${named}按 ${n.amount} ${unit} 入账` : n.text === "declined" ? `谢绝了对${named}的更正，原额度不变` : `撤回了对${named}的更正提议`;
+        return { badge: n.text === "accepted" ? "已更正" : "更正已处理", color: n.text === "accepted" ? "green" : "blue", line: `${who} ${outcome}`, destination: record ? "transactions" : undefined, actionLabel: "查看记录" };
+      }
+      case "record_rejected":
+        return { badge: "已撤销", color: "blue", line: `${who} 撤销了${named}，双方的额度已经退回`, destination: record ? "transactions" : undefined, actionLabel: "查看记录" };
       case "join_request": {
         const stillWaiting = activeDb.joinRequests.some((request) => request.circleId === n.circleId && request.member.id === n.actorId);
         const waitingInCircle = activeDb.joinRequests.filter((request) => request.circleId === n.circleId);
@@ -1481,10 +1512,7 @@ function NotificationsSheet({ notifications, onClose, onOpen }: { notifications:
         const candidates = activeDb.transactions.filter((transaction) => transaction.circleId === n.circleId && transaction.createdById === n.actorId && transaction.amount === n.amount);
         const transaction = candidates.find((item) => item.title === n.note) ?? candidates.find((item) => item.status === "pending") ?? candidates[0];
         if (transaction?.status === "pending") return { badge: "待你处理", color: "yellow", line: `${who} 记了一笔 ${n.amount} ${unit}${n.note ? `：${n.note}` : ""}，等你确认`, destination: "transactions", actionLabel: "去确认" };
-        if (transaction?.status === "rejected") return { badge: "已撤销", color: "blue", line: `${who} 的这笔记录已经撤销，不需要再确认` };
-        if (transaction?.status === "corrected") return { badge: "已更正", color: "green", line: `${who} 的这笔记录已按更正后的额度入账`, destination: "transactions", actionLabel: "查看记录" };
-        if (transaction?.status === "confirmed") return { badge: "已确认", color: "green", line: `${who} 的这笔记录已经确认入账`, destination: "transactions", actionLabel: "查看记录" };
-        return { badge: "已处理", color: "blue", line: `${who} 的这笔记录已经处理，不需要再确认` };
+        return settled(transaction);
       }
       case "received": return { badge: "互助记录", color: "yellow", line: `${who} 记下了一笔 ${n.amount ?? ""} ${unit}${n.note ? `：${n.note}` : ""}`, destination: "transactions", actionLabel: "查看记录" };
       case "badge": return { badge: "好人卡", color: "coral", line: `${who} 写了一张好人卡给你${n.note ? `：“${n.note}”` : ""}`, destination: "cards", actionLabel: "查看好人卡" };
@@ -1496,7 +1524,7 @@ function NotificationsSheet({ notifications, onClose, onOpen }: { notifications:
     <SheetHeading eyebrow="通知" title="需要处理的事" color="yellow"/>
     {notifications.length === 0
       ? <div className="empty-archive">还没有通知</div>
-      : <div className="archive-list notification-list">{notifications.map((n) => { const { badge, color, line, destination, actionLabel } = describe(n); const open = () => destination && onOpen(destination, n.circleId); return <article key={n.id} className={n.read ? "" : "unread"}>{destination ? <button className="notification-item" onClick={open}><header><Pill color={color}>{badge}</Pill><small>{n.createdAt}</small></header><p>{line}</p><span className="notification-action">{actionLabel} →</span></button> : <><header><Pill color={color}>{badge}</Pill><small>{n.createdAt}</small></header><p>{line}</p></>}</article>; })}</div>}
+      : <div className="archive-list notification-list">{notifications.map((n) => { const { badge, color, line, destination, actionLabel } = describe(n); const open = () => destination && onOpen(destination, n.circleId, n.recordId || undefined); return <article key={n.id} className={n.read ? "" : "unread"}>{destination ? <button className="notification-item" onClick={open}><header><Pill color={color}>{badge}</Pill><small>{n.createdAt}</small></header><p>{line}</p><span className="notification-action">{actionLabel} →</span></button> : <><header><Pill color={color}>{badge}</Pill><small>{n.createdAt}</small></header><p>{line}</p></>}</article>; })}</div>}
   </Modal>;
 }
 

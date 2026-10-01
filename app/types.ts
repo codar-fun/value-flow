@@ -160,6 +160,9 @@ export type Notification = {
   amount: number | null;
   note: string;
   circleId: string;
+  // Set on record events (backend record_id); "" for older notifications,
+  // which fall back to matching by actor and amount.
+  recordId: string;
   text: string;
   read: boolean;
   createdAt: string;

@@ -23,7 +23,7 @@ export function runtimeEnv(name: string): string | undefined {
 }
 
 function resolveLoopApiBase(): string {
-  return (runtimeEnv("LOOP_API_BASE") || "https://loop-api.sola.day/api").replace(/\/$/, "");
+  return (runtimeEnv("LOOP_API_BASE") || "https://flow-api.sola.day/api").replace(/\/$/, "");
 }
 
 // Kept for callers and tests that need the configured value at module load;

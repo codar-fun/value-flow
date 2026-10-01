@@ -17,7 +17,7 @@
 
 ## 当前架构
 
-`loop-backend`（Phoenix + PostgreSQL，`https://loop-api.sola.day/api`）是唯一的业务数据和身份来源。当前前端没有自己的业务数据库，也不会在浏览器端重新计算余额。
+`flow-backend`（loop-backend 的流动圈分支，Phoenix + PostgreSQL，`https://flow-api.sola.day/api`）是唯一的业务数据和身份来源。当前前端没有自己的业务数据库，也不会在浏览器端重新计算余额。
 
 - 页面请求同源 `/api/*`，由服务端代理 loop-backend；
 - access / refresh token 只保存在 httpOnly cookie（`loop_at`、`loop_rt`、`loop_at_exp`），不进入 localStorage；
@@ -100,7 +100,7 @@ pnpm test
 ## 项目结构
 
 ```text
-community-currency/
+value-flow/
 ├─ app/page.tsx                 主应用与业务交互
 ├─ app/components/              Logo、系统头像与定制头像等视觉组件
 ├─ app/lib/                     loop 客户端、头像序列化和本地测试认证
