@@ -86,6 +86,8 @@ test("everything the image actually builds from stays included", async () => {
     "pnpm-workspace.yaml",
     "next.config.ts",
     "vite.config.ts",
+    // imported by vite.config.ts; excluding it broke the image build
+    ".openai/hosting.json",
     "tsconfig.json",
     "postcss.config.mjs",
     "eslint.config.mjs",
