@@ -36,7 +36,7 @@ builder:
 env:
   PORT: "3000"
   # The frontend proxies loop-backend server-side; this is the default anyway.
-  LOOP_API_BASE: https://loop-api.sola.day/api
+  LOOP_API_BASE: https://flow-api.sola.day/api
 
 # homepod 没有开 Nomad 内存超售（memory_oversubscription = false），
 # memory_max 不会生效，所以直接按实际需要预留。
