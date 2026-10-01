@@ -1,5 +1,5 @@
 # flow-circle —— 2026-08-02 从 sg.sola.day 迁到 homepod。
-# 目录名是 community-currency，服务名是 flow-circle，注意别对错。
+# 目录名是 value-flow（原 community-currency），服务名是 flow-circle，注意别对错。
 # 镜像仓库从 ghcr.io 换成自建的 yatch（registry.sola.day，原名 home-registry.sola.day）。
 
 service: flow-circle

@@ -100,7 +100,7 @@ pnpm test
 ## 项目结构
 
 ```text
-community-currency/
+value-flow/
 ├─ app/page.tsx                 主应用与业务交互
 ├─ app/components/              Logo、系统头像与定制头像等视觉组件
 ├─ app/lib/                     loop 客户端、头像序列化和本地测试认证
