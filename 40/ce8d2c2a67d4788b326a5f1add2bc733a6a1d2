@@ -1,0 +1,21 @@
+tests/build-context.test.mjs
+  s_48a3d075bd0133::t_48f8fc167d43bc 89-90
+.dockerignore
+  s_48a3d075bd0133::t_48f8fc167d43bc 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "40ce8d2c2a67d4788b326a5f1add2bc733a6a1d2",
+  "prompts": {},
+  "sessions": {
+    "s_48a3d075bd0133": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb01a44c-eda1-4b04-97da-246e51ecce9e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
