@@ -153,6 +153,9 @@ type LoopNotification = {
   amount: number | null;
   note: string | null;
   circle_id: string | null;
+  // The aid record a record event is about; absent on older rows and on
+  // non-record kinds.
+  record_id?: string | null;
   text: string | null;
   read: boolean;
   created_at: string;
@@ -371,6 +374,7 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     amount: n.amount,
     note: n.note || "",
     circleId: n.circle_id || "",
+    recordId: n.record_id || "",
     text: n.text || "",
     read: n.read,
     createdAt: formatDate(n.created_at),
@@ -379,7 +383,11 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
   // Unified, recency-sorted activity feed the UI builds posts from. (loop has
   // no `activities` table — the client assembles it from the three sources.)
   const activity = [
-    ...loop.records.map((r) => ({ source: "transaction" as const, sourceId: r.id, ts: r.recorded_at })),
+    // A withdrawn record reaches only its two parties (as an audit trail on
+    // their profile), never the feed.
+    ...loop.records
+      .filter((r) => r.status !== "rejected")
+      .map((r) => ({ source: "transaction" as const, sourceId: r.id, ts: r.recorded_at })),
     ...loop.listings.map((l) => ({ source: "listing" as const, sourceId: l.id, ts: l.created_at })),
     ...loop.good_cards.map((c) => ({ source: "card" as const, sourceId: c.id, ts: c.created_at })),
   ]

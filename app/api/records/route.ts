@@ -14,6 +14,9 @@ export type ComposeInput =
       story?: string;
       visibility?: "public" | "mystery" | "private";
       tags?: string[];
+      // Same key ⇒ same record: the backend replays the original instead of
+      // posting again. The composer mints one per draft.
+      idempotencyKey?: string;
     }
   | {
       intent: "card";
@@ -59,6 +62,7 @@ export async function POST(request: Request) {
           story: input.story,
           visibility: input.visibility ?? "public",
           tags: input.tags ?? [],
+          idempotency_key: input.idempotencyKey,
         }),
       });
     } else if (input.intent === "card") {
