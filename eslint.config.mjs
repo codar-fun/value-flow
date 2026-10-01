@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Review/QA scratch space: throwaway scripts, mailboxes and screenshots.
+    // Never part of the shipped app, so they stay out of the lint gate.
+    ".review-tmp/**",
+    ".workbuddy/**",
   ]),
 ]);
 

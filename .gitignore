@@ -45,3 +45,10 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# local review / acceptance scratch — holds test mailbox passwords,
+# OTP mails and live session cookies. Never commit or ship.
+/.review-tmp/
+
+# agent workspace memory
+/.workbuddy/

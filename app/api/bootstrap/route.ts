@@ -1,5 +1,5 @@
 import { anonymousDatabase, toAppDatabase, type LoopBootstrap } from "../../../db/runtime";
-import { withLoop } from "@/app/lib/loop";
+import { attachCookies, clearedCookies, withLoop } from "@/app/lib/loop";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +12,15 @@ export async function GET(request: Request) {
 
     const res = await call("/bootstrap");
     if (!res.ok) {
-      if (res.status === 401) return Response.json(anonymousDatabase());
-      return Response.json({ error: "数据加载失败" }, { status: 502 });
+      // We held a token the backend now rejects: the session really is over,
+      // so drop the cookies instead of leaving a dead session around.
+      if (res.status === 401) {
+        return attachCookies(
+          Response.json(anonymousDatabase(), { headers: { "cache-control": "no-store" } }),
+          clearedCookies(),
+        );
+      }
+      return Response.json({ error: "数据加载失败" }, { status: 502, headers: { "cache-control": "no-store" } });
     }
 
     const loop = (await res.json()) as LoopBootstrap;
