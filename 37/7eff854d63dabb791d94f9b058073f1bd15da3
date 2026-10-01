@@ -1,0 +1,35 @@
+docs/后端与前端集成.md
+  s_48a3d075bd0133::t_618c48e56827e8 17
+  s_48a3d075bd0133::t_9e13b40cd41811 3,20
+  s_48a3d075bd0133::t_edfc5df0931731 21
+docs/开发交付说明.md
+  s_48a3d075bd0133::t_618c48e56827e8 22
+README.md
+  s_48a3d075bd0133::t_618c48e56827e8 20
+.env.example
+  s_48a3d075bd0133::t_618c48e56827e8 4
+docs/待发布说明.md
+  s_48a3d075bd0133::t_618c48e56827e8 54
+docs/上线前执行交接.md
+  s_48a3d075bd0133::t_618c48e56827e8 29
+ginger.yml
+  s_48a3d075bd0133::t_618c48e56827e8 39
+app/lib/loop.ts
+  s_48a3d075bd0133::t_618c48e56827e8 26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "377eff854d63dabb791d94f9b058073f1bd15da3",
+  "prompts": {},
+  "sessions": {
+    "s_48a3d075bd0133": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb01a44c-eda1-4b04-97da-246e51ecce9e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
