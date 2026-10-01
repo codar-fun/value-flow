@@ -1,0 +1,36 @@
+package.json
+  s_48a3d075bd0133::t_c124510fa6905b 12
+tests/runtime-mapping.test.mjs
+  s_48a3d075bd0133::t_959c3f62bb99f5 1-5,7,21-28,30-56,58-63,65,67,69-111
+  s_48a3d075bd0133::t_f2e9197252f20c 29,57,64,66,68
+  s_48a3d075bd0133::t_8a83ffc43ab42d 6,8-20
+app/page.tsx
+  s_48a3d075bd0133::t_a4c618d78c0958 867,905,1474-1482,1484-1495,1515
+  s_48a3d075bd0133::t_1cef4466b174b3 999-1002
+  s_48a3d075bd0133::t_0acdebac908b10 367-368,657,666,744,1150-1153,1258-1259,1467,1527
+app/api/records/route.ts
+  s_48a3d075bd0133::t_1cef4466b174b3 17-19,65
+db/runtime.ts
+  s_48a3d075bd0133::t_a4c618d78c0958 156-158,377,386-390
+app/types.ts
+  s_48a3d075bd0133::t_a4c618d78c0958 163-165
+app/globals.css
+  s_48a3d075bd0133::t_43a733fef94dfb 358
+  s_48a3d075bd0133::t_aff3fff7919fd3 357
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2da52faa1bdcc9616e4fdfbc2d5ac1c376981f83",
+  "prompts": {},
+  "sessions": {
+    "s_48a3d075bd0133": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb01a44c-eda1-4b04-97da-246e51ecce9e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
