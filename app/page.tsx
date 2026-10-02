@@ -280,6 +280,7 @@ export default function Home() {
   // and the user's own clicks say they are.
   const [circleId, setCircleId] = useState("");
   const [feedCircleId, setFeedCircleId] = useState("all");
+  const [discoverCircleId, setDiscoverCircleId] = useState("");
   const [composer, setComposer] = useState(false);
   const [intent, setIntent] = useState<ComposerType>("record");
   const [overlay, setOverlay] = useState<Overlay>(null);
@@ -300,6 +301,7 @@ export default function Home() {
   // dumping the user back to the feed.
   const [overlayReturn, setOverlayReturn] = useState<Overlay>(null);
   const refreshRef = useRef<() => Promise<void>>(async () => {});
+  const viewContentRef = useRef<HTMLDivElement>(null);
 
   activeDb = db; members = db.members; circles = db.circles; posts = buildPosts();
   const currentMemberId = db.currentMemberId;
@@ -478,6 +480,11 @@ export default function Home() {
 
   const activeCircle = circles.find((item) => item.id === circleId) ?? circles[0] ?? EMPTY_CIRCLE;
   const activeAccount = accountFor(currentMemberId, activeCircle.id);
+  const pageScopeId = view === "feed" ? feedCircleId : view === "discover" ? discoverCircleId : view === "circle" ? activeCircle.id : "";
+  useEffect(() => {
+    viewContentRef.current?.scrollTo({ top: 0 });
+    window.scrollTo({ top: 0 });
+  }, [view, pageScopeId, feedFilter, discoverFilter]);
   const selectedMember = memberById(selectedMemberId);
   const selectedPost = posts.find((post) => post.id === selectedPostId);
   // Shared dynamic links follow the same rule as profiles: the URL can only
@@ -515,9 +522,10 @@ export default function Home() {
   }), [db, feedFilter, feedCircleId]);
   const discoverPosts = useMemo(() => posts.filter((post) => {
     if (post.kind !== "need" && post.kind !== "offer") return false;
+    if (discoverCircleId && !post.circleIds.includes(discoverCircleId)) return false;
     if (discoverFilter === "all" || discoverFilter === "circles") return true;
     return post.kind === discoverFilter;
-  }), [db, discoverFilter]);
+  }), [db, discoverFilter, discoverCircleId]);
 
   const toastTimer = useRef(0);
   function flash(message: string) {
@@ -537,12 +545,37 @@ export default function Home() {
     setIntent(nextIntent); setComposer(true);
   }
 
-  function selectCircle(id: string, nextView: View = "feed") {
-    setCircleId(id); setFeedCircleId(id); setView(nextView);
+  function selectCircle(id: string, nextView?: View) {
+    setCircleId(id);
+    if (view === "discover" && !nextView) {
+      setDiscoverCircleId(id);
+      setView("discover");
+      return;
+    }
+    setFeedCircleId(id);
+    setView(nextView ?? (view === "circle" ? "circle" : "feed"));
   }
 
   function showAllCircles() {
     setFeedCircleId("all"); setView("feed");
+  }
+
+  function showAllDiscoverCircles() {
+    if (view === "discover") { setDiscoverCircleId(""); return; }
+    showAllCircles();
+  }
+
+  function openFeed() {
+    if (view === "discover" && discoverCircleId) {
+      setCircleId(discoverCircleId);
+      setFeedCircleId(discoverCircleId);
+    }
+    setView("feed");
+  }
+
+  function openDiscover() {
+    setDiscoverCircleId("");
+    setView("discover");
   }
 
   function openCreateCircle() {
@@ -609,15 +642,15 @@ export default function Home() {
       <button className={`brand-mark ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><BrandGlyph large/><span className="brand-copy"><strong>流动圈</strong><b>FLOW CIRCLE · 了解我们 →</b></span></button>
       <div className="dock-heading"><span>我的地图</span><b>{String(circles.length).padStart(2,"0")}</b></div>
       <button className={`dock-all ${feedCircleId === "all" && view === "feed" ? "active" : ""}`} onClick={showAllCircles}><NavIcon kind="feed"/><b>全部圈子动态</b><strong>{posts.length}</strong></button>
-      <div className="dock-list">{circles.filter((item) => memberById(currentMemberId).circleIds.includes(item.id)).map((item) => { const account = accountFor(currentMemberId, item.id); return <button key={item.id} className={`dock-circle dock-${item.color} ${feedCircleId === item.id ? "active" : ""}`} onClick={() => selectCircle(item.id)}><CircleGlyph icon={item.short} seed={item.id} size="small"/><span><b>{item.name}</b><small>{item.currency}</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div>
-      <button className="new-circle" onClick={openCreateCircle}><b>＋</b><span>创建新圈子</span></button><div className="dock-note"><BrandGlyph/><p>让帮助被记得。<br/>让关系，自在流动。</p><span>SMALL ACTS, REAL CONNECTIONS.</span></div>
+      <div className="dock-list">{circles.filter((item) => memberById(currentMemberId).circleIds.includes(item.id)).map((item) => { const account = accountFor(currentMemberId, item.id); const selectedCircleId = view === "circle" ? activeCircle.id : view === "discover" ? discoverCircleId : feedCircleId; return <button key={item.id} className={`dock-circle dock-${item.color} ${selectedCircleId === item.id ? "active" : ""}`} onClick={() => selectCircle(item.id)}><CircleGlyph icon={item.short} seed={item.id} size="small"/><span><b>{item.name}</b><small>{item.currency}</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div>
+      <button className="new-circle" onClick={openCreateCircle}><b>＋</b><span>创建新圈子</span></button><div className="dock-note"><p>让帮助被记得。<br/>让关系，自在流动。</p><span>SMALL ACTS, REAL CONNECTIONS.</span></div>
     </aside>
 
     <section className="phone-stage">
       <div className={`app-frame ${view === "about" || view === "create" ? "about-open" : ""}`}>
         <header className="topbar"><button className={`brand-mini ${view === "about" ? "active" : ""}`} onClick={() => setView("about")} aria-label="了解流动圈"><BrandGlyph/></button><div><p>{view === "about" ? "FLOW CIRCLE · 产品概念" : view === "create" ? "NEW CIRCLE · 创建向导" : "我的圈子动态"}</p><h1>{view === "about" ? "关于流动圈" : view === "create" ? "创建新圈子" : `你好，${memberById(currentMemberId).name}！`}</h1></div><button className="bell-button" onClick={() => setOverlay("notifications")} aria-label={`通知${db.unreadNotifications > 0 ? `，${db.unreadNotifications} 条未读` : ""}`}><NotificationIcon/>{db.unreadNotifications > 0 && <i>{db.unreadNotifications > 9 ? "9+" : db.unreadNotifications}</i>}</button><button className="avatar-button" onClick={() => setView("me")} aria-label="打开我的主页"><Character member={memberById(currentMemberId)}/></button></header>
-        {view !== "about" && view !== "create" && <nav className="circle-switcher" aria-label="切换动态范围"><button className={`all-switch ${feedCircleId === "all" && view === "feed" ? "selected" : ""}`} onClick={showAllCircles}><NavIcon kind="feed"/><span>全部圈子</span><b>{posts.length}</b></button>{circles.filter((item) => memberById(currentMemberId).circleIds.includes(item.id)).map((item) => { const account = accountFor(currentMemberId, item.id); return <button key={item.id} className={feedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><CircleGlyph icon={item.short} seed={item.id} size="tiny"/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>}
-        <div className="view-content">
+        {view !== "about" && view !== "create" && <nav className="circle-switcher" aria-label={view === "circle" ? "切换圈子主页" : view === "discover" ? "筛选发现圈子" : "切换动态范围"}><button className={`all-switch ${view === "feed" && feedCircleId === "all" || view === "discover" && !discoverCircleId ? "selected" : ""}`} onClick={showAllDiscoverCircles}><NavIcon kind="feed"/><span>{view === "circle" ? "全部圈子动态" : "全部圈子"}</span><b>{posts.length}</b></button>{circles.filter((item) => memberById(currentMemberId).circleIds.includes(item.id)).map((item) => { const account = accountFor(currentMemberId, item.id); const selectedCircleId = view === "circle" ? activeCircle.id : view === "discover" ? discoverCircleId : feedCircleId; return <button key={item.id} className={selectedCircleId === item.id ? "selected" : ""} onClick={() => selectCircle(item.id)}><CircleGlyph icon={item.short} seed={item.id} size="tiny"/><span>{item.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance}</b></button>; })}</nav>}
+        <div className="view-content" ref={viewContentRef}>
           {view === "about" && <AboutView onExplore={showAllCircles} onCreate={openCreateCircle} onCircle={(id) => selectCircle(id, "circle")}/>}
           {view === "create" && <CreateCircleView key={createSession} onExit={() => setView("me")} onDone={async (input) => {
             const response=await fetch("/api/circles",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(input)}); const result=await response.json() as {error?:string};
@@ -633,8 +666,8 @@ export default function Home() {
           {view === "me" && <MeView onShare={() => setOverlay("share")} onCard={() => openComposer("card")} onCreate={openCreateCircle} onSettings={() => setOverlay("settings")} onEditProfile={() => setOverlay("editProfile")} onCircle={(id) => selectCircle(id, "circle")} onArchive={(tab) => openProfile(currentMemberId, tab)} onLogout={logout}/>}
         </div>
         <nav className="bottom-nav" aria-label="主要导航">
-          <button aria-current={view === "feed" ? "page" : undefined} className={view === "feed" ? "active" : ""} onClick={() => setView("feed")}><NavIcon kind="feed"/><small>动态</small></button>
-          <button aria-current={view === "discover" ? "page" : undefined} className={view === "discover" ? "active" : ""} onClick={() => setView("discover")}><NavIcon kind="discover"/><small>发现</small></button>
+          <button aria-current={view === "feed" ? "page" : undefined} className={view === "feed" ? "active" : ""} onClick={openFeed}><NavIcon kind="feed"/><small>动态</small></button>
+          <button aria-current={view === "discover" ? "page" : undefined} className={view === "discover" ? "active" : ""} onClick={openDiscover}><NavIcon kind="discover"/><small>发现</small></button>
           <button className="compose-slot" onClick={() => openComposer()} aria-label="打开记录菜单"><NavIcon kind="record"/><small>记录</small></button>
           <button aria-current={view === "circle" ? "page" : undefined} className={view === "circle" ? "active" : ""} onClick={() => setView("circle")}><NavIcon kind="circle"/><small>圈子</small></button>
           <button aria-current={view === "me" ? "page" : undefined} className={view === "me" ? "active" : ""} onClick={() => setView("me")}><NavIcon kind="me"/><small>我的</small></button>
@@ -1298,7 +1331,7 @@ function InviteSheet({ circle, onClose, onNotice }: { circle: Circle; onClose: (
   async function shareInvite(){const url=await createInvite();if(!url)return;const canShare=typeof navigator.share==="function";try{if(isLocalUrl(url)){await navigator.clipboard.writeText(url);onNotice("已复制本地测试链接，只能在这台电脑打开");return;}if(canShare)await navigator.share({title:`加入${circle.name}`,text:circle.tagline,url});else await navigator.clipboard.writeText(url);}catch{return;}onNotice(canShare?"邀请已经交给系统分享":"邀请链接已复制，可以粘贴到微信");}
   async function showPoster(){setMethod("poster");if(!inviteUrl&&!creating)await createInvite();}
   async function saveImage(){if(!inviteUrl){onNotice("请先生成邀请图");return;}try{await savePosterImage(posterRef.current, `${circle.name}-邀请`);onNotice("邀请图片已保存");}catch{onNotice("保存失败，请稍后再试");}}
-  return <Modal onClose={onClose} label={`邀请加入${circle.name}`}><SheetHeading eyebrow={circle.joining === "approval" ? "加入需审批" : "受邀直接加入"} title={`邀请加入 ${circle.name}`} color={circle.color}/><div className="invite-tabs"><button className={method === "link" ? "active" : ""} onClick={() => setMethod("link")}>邀请链接</button><button className={method === "poster" ? "active" : ""} onClick={() => void showPoster()}>微信邀请图</button></div>{method === "link" ? <div className="invite-link"><span>7 天有效 · 仅可使用 1 次</span><b>{inviteUrl||"生成安全邀请链接"}</b><button disabled={creating} onClick={copyInvite}>{creating?"正在生成…":inviteUrl?"复制链接":"生成并复制"}</button></div> : <div ref={posterRef} className={`mini-invite-poster hero-${circle.color}`}><CircleGlyph icon={circle.short} seed={circle.id} size="regular"/><span>来自圈内伙伴的邀请</span><h3>来 {circle.name}<br/>看看我们还能怎样互相帮助</h3><p>可以问，也可以拒绝。</p><QrCode value={inviteUrl} className="mini-code"/></div>}{isLocalUrl(inviteUrl) && <p className="local-link-warning">本地测试地址，仅这台电脑可打开。</p>}<div className={`sheet-actions ${method === "link" ? "sheet-actions-single" : ""}`}>{method === "poster" && <button className="secondary-button" disabled={creating || !inviteUrl} onClick={saveImage}>保存图片</button>}<button className="primary-button" disabled={creating} onClick={shareInvite}>分享邀请</button></div></Modal>;
+  return <Modal onClose={onClose} label={`邀请加入${circle.name}`}><SheetHeading eyebrow={circle.joining === "approval" ? "加入需审批" : "受邀直接加入"} title={`邀请加入 ${circle.name}`} color={circle.color}/><div className="invite-tabs"><button className={method === "link" ? "active" : ""} onClick={() => setMethod("link")}>邀请链接</button><button className={method === "poster" ? "active" : ""} onClick={() => void showPoster()}>微信邀请图</button></div>{method === "link" ? <div className="invite-link"><span>7 天有效 · 仅可使用 1 次</span><b>{inviteUrl||"生成安全邀请链接"}</b><button disabled={creating} onClick={copyInvite}>{creating?"正在生成…":inviteUrl?"复制链接":"生成并复制"}</button></div> : <div ref={posterRef} className={`mini-invite-poster hero-${circle.color}`}><CircleGlyph icon={circle.short} seed={circle.id} size="regular"/><span>来自圈内伙伴的邀请</span><h3>来 {circle.name}<br/>看看我们还能怎样互相帮助</h3><p>可以问，也可以拒绝。</p><QrCode value={inviteUrl} className="mini-code"/></div>}{isLocalUrl(inviteUrl) && <p className="local-link-warning">本地测试地址，仅这台电脑可打开。</p>}<div className={`sheet-actions invite-sheet-actions ${method === "link" ? "invite-sheet-actions-single" : ""}`}>{method === "poster" && <button className="secondary-button" disabled={creating || !inviteUrl} onClick={saveImage}>保存图片</button>}<button className="primary-button" disabled={creating} onClick={shareInvite}>分享邀请</button></div></Modal>;
 }
 
 // Four-step create wizard. Every field maps to something loop-backend stores:
