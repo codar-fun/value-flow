@@ -1,3 +1,4 @@
+import type { PartnerAvatar } from "./lib/partner-avatar";
 // Domain types for the Flow Circle UI. Every field here is backed by a real
 // loop-backend field (see `db/runtime.ts` for the mapping) — the only derived
 // values are the two presentational enums below, which pick a CSS class.
@@ -13,7 +14,7 @@ export type AvatarMouth = "smile" | "flat" | "open" | "grin" | "pout" | "tiny";
 export type AvatarAccessory = "none" | "dot" | "star" | "leaf" | "flower" | "clips" | "heart" | "moon" | "sparkle";
 export type LegacyFaceAvatar = `custom:${string}`;
 export type FaceAvatar = `custom2:${string}`;
-export type AvatarVariant = AbstractAvatarVariant | LegacyFaceAvatar | FaceAvatar;
+export type AvatarVariant = AbstractAvatarVariant | LegacyFaceAvatar | FaceAvatar | PartnerAvatar;
 export type Color = "yellow" | "pink" | "blue" | "green" | "coral";
 
 export type Member = {

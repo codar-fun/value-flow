@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import QRCode from "qrcode";
-import type { AbstractAvatarVariant, AvatarEyes, AvatarGlasses, AvatarHair, AvatarHairColor, AvatarMouth, AvatarSkin, AvatarVariant, Circle, Color, DiscoverableCircle, JoinRequest, Member, Transaction } from "./types";
-import { ABSTRACT_AVATARS, AVATAR_EYES, AVATAR_GLASSES, AVATAR_HAIRS, AVATAR_HAIR_COLORS, AVATAR_MOUTHS, AVATAR_SKINS, CURATED_FACE_PRESETS, DEFAULT_FACE_CONFIG, abstractAvatarFor, encodeFaceAvatar, parseFaceAvatar, type FaceConfig } from "./lib/avatar";
+import type { AbstractAvatarVariant, AvatarVariant, Circle, Color, DiscoverableCircle, JoinRequest, Member, Transaction } from "./types";
+import { parseFaceAvatar } from "./lib/avatar";
+import { parsePartnerAvatar } from "./lib/partner-avatar";
+import { AvatarWorkshop } from "./components/avatar-workshop";
 import { FaceAvatarArtwork } from "./components/face-avatar";
 import { AbstractAvatarArtwork } from "./components/abstract-avatar";
+import { BrandGlyph, FlowIcon, CircleGlyph, NotificationIcon, NavIcon, CIRCLE_ICON_GROUPS, CIRCLE_ICON_LABELS, type CircleIconKey } from "./components/identity";
 import type { AppDatabase } from "../db/runtime";
 import type { ComposeInput } from "./api/records/route";
 
@@ -46,41 +49,6 @@ const EMPTY_CIRCLE: Circle = { id: "", name: "", short: "•", color: "green", c
 let activeDb = initialDb;
 let members = activeDb.members;
 let circles = activeDb.circles;
-
-const AVATAR_PART_LABELS = {
-  skin: { ivory: "象牙白", cream: "米白", apricot: "暖杏", gold: "暖黄" } as Record<AvatarSkin, string>,
-  hair: { short: "侧分短发", crop: "短碎发", fringe: "齐刘海", bob: "齐耳短发", wave: "自然波浪", curl: "轻卷发", center: "中分短发", shag: "层次短发", bun: "丸子头", undercut: "渐层短发", long: "长直发", longWave: "长波浪", ponytail: "高马尾", braid: "侧编发", halfUp: "半扎长发", twinTail: "双马尾" } as Record<AvatarHair, string>,
-  hairColor: { ink: "墨黑", cocoa: "深棕", chestnut: "栗棕", coral: "珊瑚", auburn: "赤茶", blue: "湖蓝", mint: "薄荷", plum: "灰紫" } as Record<AvatarHairColor, string>,
-  eyes: { dot: "圆眼", smile: "笑眼", wink: "眨眼", calm: "平静", bright: "亮眼", crescent: "月牙眼", glance: "侧看" } as Record<AvatarEyes, string>,
-  glasses: { none: "不戴", round: "小圆框", oval: "椭圆框", square: "圆角方框", half: "轻半框" } as Record<AvatarGlasses, string>,
-  mouth: { smile: "微笑", flat: "平静", open: "开口笑", grin: "露齿笑", pout: "嘟嘴", tiny: "浅笑" } as Record<AvatarMouth, string>,
-};
-type AvatarPart = "hair" | "eyes" | "glasses" | "mouth" | "color";
-
-type CircleIconKey = "n1" | "n2" | "n3" | "n4" | "t1" | "t2" | "t3" | "t4" | "r1" | "r2" | "r3" | "r4" | "c1" | "c2" | "c3" | "c4";
-const CIRCLE_ICON_GROUPS: { label: string; note: string; keys: CircleIconKey[] }[] = [
-  { label: "自然", note: "叶、河流、种子与山", keys: ["n1", "n2", "n3", "n4"] },
-  { label: "科技", note: "电路、信号、节点与轨道", keys: ["t1", "t2", "t3", "t4"] },
-  { label: "旅行", note: "路径、方向、营地与船", keys: ["r1", "r2", "r3", "r4"] },
-  { label: "文化", note: "书、舞台、音乐与编织", keys: ["c1", "c2", "c3", "c4"] },
-];
-const CIRCLE_ICON_LABELS: Record<CircleIconKey, string> = {
-  n1: "叶片", n2: "河流", n3: "种子", n4: "山野",
-  t1: "电路", t2: "信号", t3: "节点", t4: "轨道",
-  r1: "路径", r2: "方向", r3: "营地", r4: "远航",
-  c1: "共读", c2: "舞台", c3: "音乐", c4: "编织",
-};
-const CIRCLE_ICON_KEYS = CIRCLE_ICON_GROUPS.flatMap((group) => group.keys);
-
-// New circles store a compact two-character icon key in loop's existing icon
-// field. Legacy circles keep their old value in the backend but map to a
-// stable pictogram here, so no letter/initial leaks back into the UI.
-function circleIconFor(value: string, seed: string): CircleIconKey {
-  if ((CIRCLE_ICON_KEYS as string[]).includes(value)) return value as CircleIconKey;
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  return CIRCLE_ICON_KEYS[h % CIRCLE_ICON_KEYS.length];
-}
 
 // A stand-in for an id we can't resolve. Falling back to `members[0]` used to
 // put a real person's name (usually the signed-in user's) on someone else's
@@ -135,80 +103,33 @@ function buildPosts(): Post[] {
     const receiver = activeDb.members.find((item) => item.id === transaction.receiverId);
     if (!hidden && (!provider || !receiver)) continue;
     const pending = transaction.status === "pending";
-    result.push({ id: postId, kind: hidden ? "mystery" : "trade", badge: hidden ? "神秘记录" : pending ? "待确认" : "互助完成", person: hidden ? "圈里发生了一次互助" : `${provider!.name} → ${receiver!.name}`, caption: hidden ? "身份与故事已隐藏" : pending ? "等待另一方确认" : transaction.visibility === "private" ? "仅当事人" : transaction.visibility === "mystery" ? "神秘记录 · 只有你们看得到" : "圈内公开", memberId: hidden ? undefined : provider!.id, avatar: hidden ? "?" : provider!.initial, avatarVariant: hidden ? "crop" : provider!.avatar, color: hidden ? "blue" : "yellow", text: hidden ? "参与者和故事选择了隐藏。" : transaction.story || transaction.title, meta: `${circle.name} · ${transaction.amount} ${circle.currency}`, chips: transaction.tags, circleIds: [circle.id], source: activity.source, sourceId: transaction.id });
+    result.push({ id: postId, kind: hidden ? "mystery" : "trade", badge: hidden ? "神秘记录" : pending ? "待确认" : "互助完成", person: hidden ? "圈里发生了一次互助" : `${provider!.name} → ${receiver!.name}`, caption: hidden ? "身份与故事已隐藏" : pending ? "等待另一方确认" : transaction.visibility === "private" ? "仅当事人" : transaction.visibility === "mystery" ? "神秘记录 · 事情仅当事人可见" : "圈内公开", memberId: hidden ? undefined : provider!.id, avatar: hidden ? "?" : provider!.initial, avatarVariant: hidden ? "crop" : provider!.avatar, color: hidden ? "blue" : "yellow", text: hidden ? "参与者和故事选择了隐藏。" : transaction.story || transaction.title, meta: `${circle.name} · ${transaction.amount} ${circle.currency}`, chips: transaction.tags, circleIds: [circle.id], source: activity.source, sourceId: transaction.id });
   }
   return result;
 }
 
 let posts = buildPosts();
 
-const intents: { id: ComposerType; label: string; color: Color; icon: string }[] = [
-  { id: "record", label: "记一笔", color: "yellow", icon: "记" },
-  { id: "need", label: "我想要", color: "pink", icon: "要" },
-  { id: "offer", label: "我可以给", color: "green", icon: "给" },
-  { id: "card", label: "好人卡", color: "blue", icon: "心" },
+const intents: { id: ComposerType; label: string; color: Color; }[] = [
+  { id: "record", label: "记一笔", color: "yellow" },
+  { id: "need", label: "我想要", color: "pink" },
+  { id: "offer", label: "我可以给", color: "green" },
+  { id: "card", label: "好人卡", color: "blue" },
 ];
 
 function Character({ member, text, color = "yellow", variant = "crop", small = false }: { member?: Member; text?: string; color?: Color; variant?: AvatarVariant; small?: boolean }) {
   const active = member ?? { initial: text ?? "友", color, avatar: variant };
   const symbolOnly = !member && Boolean(text);
+  const partner = parsePartnerAvatar(active.avatar);
   const face = parseFaceAvatar(active.avatar);
-  const avatarClasses = face
+  const avatarClasses = partner ? "avatar-partner" : face
     ? `avatar-custom avatar-skin-${face.skin} avatar-shape-${face.shape} avatar-hair-${face.hair} avatar-hair-color-${face.hairColor} avatar-eyes-${face.eyes} avatar-glasses-${face.glasses} avatar-mouth-${face.mouth}`
     : `avatar-abstract face-${active.avatar}`;
   return <span className={`character character-${active.color} ${avatarClasses} ${symbolOnly ? "character-symbol" : ""} ${small ? "character-small" : ""}`} aria-hidden="true">{symbolOnly
-    ? <b className="character-mark">{active.initial}</b>
-    : face
+    ? <span className="character-mark"><FlowIcon kind="mystery"/></span>
+    : partner ? <AbstractAvatarArtwork variant={partner.shape} expression={partner.expression} color={partner.color}/> : face
       ? <FaceAvatarArtwork config={face}/>
       : <AbstractAvatarArtwork variant={active.avatar as AbstractAvatarVariant}/>}</span>;
-}
-
-function CircleGlyph({ icon, seed, size = "regular" }: { icon: string; seed: string; size?: "tiny" | "small" | "regular" | "large" }) {
-  const key = circleIconFor(icon, seed);
-  const common = { fill: "none", stroke: "currentColor", strokeWidth: 2.4, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
-  return <span className={`circle-glyph circle-glyph-${key[0]} circle-glyph-${size}`} aria-hidden="true"><svg viewBox="0 0 48 48" {...common}>
-    {key === "n1" && <><path fill="var(--green)" d="M11 31C12 16 23 10 37 9c-1 14-8 27-23 28z"/><path d="M14 35c7-8 12-13 21-22M20 28l-1-8M26 22l7 1"/></>}
-    {key === "n2" && <><circle cx="35" cy="13" r="5" fill="var(--yellow)"/><path d="M7 18c8-6 14 6 22 0s11-3 13-1M6 27c8-6 14 6 22 0s11-3 14-1M8 36c7-5 13 4 20 0s10-3 13-1" stroke="var(--blue)"/></>}
-    {key === "n3" && <><ellipse cx="24" cy="33" rx="7" ry="9" fill="var(--coral)"/><path d="M24 25c-2-9-8-12-14-10 1 7 5 11 14 10ZM24 25c2-9 8-12 14-10-1 7-5 11-14 10Z" fill="var(--green)"/><path d="M24 25v9"/></>}
-    {key === "n4" && <><circle cx="34" cy="13" r="5" fill="var(--yellow)"/><path d="m7 37 12-17 7 8 5-6 10 15" fill="var(--green)"/><path d="m16 25 3-5 4 5" fill="var(--blue)"/></>}
-    {key === "t1" && <><path d="M10 38V25h9V12M19 25h10v9h9M29 25V12h9"/><circle cx="19" cy="9" r="3" fill="var(--yellow)"/><circle cx="38" cy="9" r="3" fill="var(--blue)"/><circle cx="38" cy="37" r="3" fill="var(--coral)"/><circle cx="10" cy="40" r="3" fill="var(--green)"/></>}
-    {key === "t2" && <><circle cx="24" cy="25" r="4" fill="var(--coral)"/><path d="M16 18a10 10 0 0 0 0 14M32 18a10 10 0 0 1 0 14M11 13a17 17 0 0 0 0 24M37 13a17 17 0 0 1 0 24" stroke="var(--blue)"/></>}
-    {key === "t3" && <><rect x="8" y="9" width="9" height="9" rx="2" fill="var(--yellow)"/><rect x="31" y="9" width="9" height="9" rx="2" fill="var(--blue)"/><rect x="19.5" y="30" width="9" height="9" rx="2" fill="var(--green)"/><path d="M17 13.5h14M12.5 18v8l11.5 4M35.5 18v8L24 30"/></>}
-    {key === "t4" && <><path d="M14 29 25 14l9 7-11 15z" fill="var(--paper-strong)"/><path d="m28 16 4-6M16 32l-4 5M31 31c7-1 10-4 10-7M17 18c-7 1-10 4-10 7"/><circle cx="36" cy="37" r="3" fill="var(--yellow)"/></>}
-    {key === "r1" && <><path d="M9 39c1-9 18-6 16-15S37 17 39 9" stroke="var(--coral)"/><circle cx="9" cy="39" r="3" fill="var(--yellow)"/><circle cx="39" cy="9" r="3" fill="var(--green)"/><path d="m31 10 8-3 2 8"/></>}
-    {key === "r2" && <><circle cx="24" cy="24" r="14" fill="var(--paper-strong)"/><path d="m29 17-3 10-9 4 4-10z" fill="var(--coral)"/><circle cx="24" cy="24" r="2" fill="var(--yellow)"/></>}
-    {key === "r3" && <><path d="m8 37 15-21 16 21z" fill="var(--coral)"/><path d="m23 16 4 21M14 37l10-13 9 13"/><path d="M34 19v-8M34 11h7l-3 4 3 4h-7" fill="var(--green)"/></>}
-    {key === "r4" && <><path d="m10 27 6 10h20l5-10z" fill="var(--blue)"/><path d="M24 12v15M24 13l11 9H24" fill="var(--yellow)"/><path d="M7 41c5-4 9 4 14 0s9 4 14 0 7 0 8 0"/></>}
-    {key === "c1" && <><path d="M7 13c7-3 12-1 17 3v23c-5-4-10-6-17-3z" fill="var(--paper-strong)"/><path d="M41 13c-7-3-12-1-17 3v23c5-4 10-6 17-3z" fill="var(--blue)"/><path d="M24 16v23"/></>}
-    {key === "c2" && <><path d="M8 10h32v7H8z" fill="var(--yellow)"/><path d="M10 17c8 2 8 13 3 22M38 17c-8 2-8 13-3 22" fill="var(--coral)"/><path d="M18 17c2 7 2 15-1 22M30 17c-2 7-2 15 1 22"/></>}
-    {key === "c3" && <><path d="M20 10v24c-5-2-10 0-10 4s8 5 12 0c1-2 1-4 1-7V17l15-4v16c-5-2-10 0-10 4s8 5 12 0c1-2 1-4 1-7V8z" fill="var(--yellow)"/><path d="m23 17 18-5"/></>}
-    {key === "c4" && <><path d="M11 10v28M19 10v28M29 10v28M37 10v28M10 13h28M10 21h28M10 31h28M10 39h28"/><path d="m9 16 8-7 22 22-8 8z" fill="var(--green)"/><path d="m31 9 8 8-22 22-8-8z" fill="var(--coral)"/></>}
-  </svg></span>;
-}
-
-function BrandGlyph({ large = false }: { large?: boolean }) {
-  return <span className={`brand-glyph ${large ? "brand-glyph-large" : ""}`} aria-hidden="true"><svg viewBox="0 0 48 48">
-    <path d="M15 6h18c6 0 9 3 9 9v18c0 6-3 9-9 9H15c-6 0-9-3-9-9V15c0-6 3-9 9-9Z" fill="var(--paper-strong)"/>
-    <path d="M15 6h18c6 0 9 3 9 9v3c-5-2-10-1-13 3-2 3-3 5-5 5-3 0-4-4-7-5-3-2-7-1-11 1v-7c0-6 3-9 9-9Z" fill="var(--coral)" stroke="var(--ink)" strokeWidth="2.2" strokeLinejoin="round"/>
-    <path d="M42 18v15c0 6-3 9-9 9h-8c1-5-2-8-2-12 0-3 3-5 6-9 3-4 8-5 13-3Z" fill="var(--green)" stroke="var(--ink)" strokeWidth="2.2" strokeLinejoin="round"/>
-    <path d="M25 42H15c-6 0-9-3-9-9v-2c5 1 9-1 12-5 2-2 4-2 6 0-1 5 2 8 1 16Z" fill="var(--yellow)" stroke="var(--ink)" strokeWidth="2.2" strokeLinejoin="round"/>
-    <path d="M15 6h18c6 0 9 3 9 9v18c0 6-3 9-9 9H15c-6 0-9-3-9-9V15c0-6 3-9 9-9Z" fill="none" stroke="var(--ink)" strokeWidth="3" strokeLinejoin="round"/>
-  </svg></span>;
-}
-
-function NotificationIcon() {
-  return <span className="notification-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 22h14c-2-2-2-4-2-8a5 5 0 0 0-10 0c0 4 0 6-2 8Z" fill="var(--yellow)"/><path d="M14 8V6h4v2M14 25c1 2 3 2 4 0"/><circle cx="16" cy="24" r="2" fill="var(--coral)"/></svg></span>;
-}
-
-function NavIcon({ kind }: { kind: "feed" | "discover" | "record" | "circle" | "me" }) {
-  const common = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
-  return <span className={`nav-icon nav-icon-${kind}`} aria-hidden="true"><svg viewBox="0 0 24 24" {...common}>
-    {kind === "feed" && <><path d="M4 10.5 12 4l8 6.5"/><path d="M6.5 9.5V20h11V9.5"/><path d="M10 20v-5h4v5"/></>}
-    {kind === "discover" && <><circle cx="12" cy="12" r="8.5"/><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8z"/></>}
-    {kind === "record" && <path d="M12 7.5v9M7.5 12h9"/>}
-    {kind === "circle" && <><circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><circle cx="12" cy="16" r="3"/><path d="M10.5 10.8 11 13M13.5 10.8 13 13"/></>}
-    {kind === "me" && <><rect x="4" y="5" width="16" height="14" rx="3"/><circle cx="9" cy="11" r="2"/><path d="M7 16c.8-1.5 3.2-1.5 4 0M14 10h3M14 14h3"/></>}
-  </svg></span>;
 }
 
 function QrCode({ value, className = "qr-code" }: { value: string; className?: string }) {
@@ -319,7 +240,7 @@ function LoginGate({ onDone }: { onDone: () => Promise<void> }) {
     <div className="join-brand"><BrandGlyph/><span>FLOW CIRCLE · 登录流动圈</span></div>
     <h1>{step === "profile" ? "给自己取个名字" : "用邮箱验证码登录"}</h1>
     <p>{step === "email" ? "输入邮箱，我们会发送一次性验证码。" : step === "code" ? `验证码已发送到 ${email}` : "这个名字会显示在圈子里。"}</p>
-    {error && <p className="account-error">{error}</p>}
+    {error && <p className="account-error" role="alert">{error}</p>}
     {step === "email" && <>
       <div className="account-form"><label><span>邮箱</span><input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email"/></label></div>
       <button className="primary-button" onClick={requestCode} disabled={busy}>{busy ? "发送中…" : "发送验证码"}</button>
@@ -606,9 +527,9 @@ export default function Home() {
   }
 
   // Auth gate: wait for the first bootstrap, then require a loop-backend session.
-  if (!loaded) return <main className="world-shell login-splash"><p>正在连接流动圈…</p></main>;
+  if (!loaded) return <main className="login-splash"><section className="join-card" role="status"><BrandGlyph large/><h1>让关系，自在流动。</h1><p>正在连接流动圈…</p></section></main>;
   if (!db.session.authenticated) {
-    if (loadFailed) return <main className="world-shell login-splash"><div><p>连不上流动圈的数据服务。你没有被登出，稍后再试一次就好。</p><button className="primary-button" onClick={() => { setLoaded(false); refreshData().catch(() => {}).finally(() => setLoaded(true)); }}>重试</button></div></main>;
+    if (loadFailed) return <main className="login-splash"><div className="join-card"><BrandGlyph large/><h1>稍等一下，马上重逢。</h1><p>连不上流动圈的数据服务。你没有被登出，稍后再试一次就好。</p><button className="primary-button" onClick={() => { setLoaded(false); refreshData().catch(() => {}).finally(() => setLoaded(true)); }}>重试</button></div></main>;
     return <LoginGate onDone={async () => { setLoaded(false); try { await refreshData(); } finally { setLoaded(true); } }}/>;
   }
 
@@ -689,7 +610,7 @@ export default function Home() {
       <div className="dock-heading"><span>我的地图</span><b>{String(circles.length).padStart(2,"0")}</b></div>
       <button className={`dock-all ${feedCircleId === "all" && view === "feed" ? "active" : ""}`} onClick={showAllCircles}><NavIcon kind="feed"/><b>全部圈子动态</b><strong>{posts.length}</strong></button>
       <div className="dock-list">{circles.filter((item) => memberById(currentMemberId).circleIds.includes(item.id)).map((item) => { const account = accountFor(currentMemberId, item.id); return <button key={item.id} className={`dock-circle dock-${item.color} ${feedCircleId === item.id ? "active" : ""}`} onClick={() => selectCircle(item.id)}><CircleGlyph icon={item.short} seed={item.id} size="small"/><span><b>{item.name}</b><small>{item.currency}</small></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div>
-      <button className="new-circle" onClick={openCreateCircle}><b>＋</b><span>创建新圈子</span></button>
+      <button className="new-circle" onClick={openCreateCircle}><b>＋</b><span>创建新圈子</span></button><div className="dock-note"><BrandGlyph/><p>让帮助被记得。<br/>让关系，自在流动。</p><span>SMALL ACTS, REAL CONNECTIONS.</span></div>
     </aside>
 
     <section className="phone-stage">
@@ -712,17 +633,17 @@ export default function Home() {
           {view === "me" && <MeView onShare={() => setOverlay("share")} onCard={() => openComposer("card")} onCreate={openCreateCircle} onSettings={() => setOverlay("settings")} onEditProfile={() => setOverlay("editProfile")} onCircle={(id) => selectCircle(id, "circle")} onArchive={(tab) => openProfile(currentMemberId, tab)} onLogout={logout}/>}
         </div>
         <nav className="bottom-nav" aria-label="主要导航">
-          <button className={view === "feed" ? "active" : ""} onClick={() => setView("feed")}><NavIcon kind="feed"/><small>动态</small></button>
-          <button className={view === "discover" ? "active" : ""} onClick={() => setView("discover")}><NavIcon kind="discover"/><small>发现</small></button>
+          <button aria-current={view === "feed" ? "page" : undefined} className={view === "feed" ? "active" : ""} onClick={() => setView("feed")}><NavIcon kind="feed"/><small>动态</small></button>
+          <button aria-current={view === "discover" ? "page" : undefined} className={view === "discover" ? "active" : ""} onClick={() => setView("discover")}><NavIcon kind="discover"/><small>发现</small></button>
           <button className="compose-slot" onClick={() => openComposer()} aria-label="打开记录菜单"><NavIcon kind="record"/><small>记录</small></button>
-          <button className={view === "circle" ? "active" : ""} onClick={() => setView("circle")}><NavIcon kind="circle"/><small>圈子</small></button>
-          <button className={view === "me" ? "active" : ""} onClick={() => setView("me")}><NavIcon kind="me"/><small>我的</small></button>
+          <button aria-current={view === "circle" ? "page" : undefined} className={view === "circle" ? "active" : ""} onClick={() => setView("circle")}><NavIcon kind="circle"/><small>圈子</small></button>
+          <button aria-current={view === "me" ? "page" : undefined} className={view === "me" ? "active" : ""} onClick={() => setView("me")}><NavIcon kind="me"/><small>我的</small></button>
         </nav>
       </div>
     </section>
 
-    <aside className="world-panel">
-      <div className="world-card world-card-main"><span className="world-kicker">TODAY IN YOUR CIRCLES</span><h2>今天，圈里有<br/><em>{posts.length} 件事</em>在流动</h2><div className="world-stats"><span><b>{posts.filter((post) => post.kind === "need" || post.kind === "offer").length}</b>需要 / 提供</span><span><b>{posts.filter((post) => post.kind === "trade" || post.kind === "mystery").length}</b>互助完成</span><span><b>{posts.filter((post) => post.kind === "card").length}</b>张好人卡</span></div></div>
+    <aside className="world-panel" aria-label="圈子概览">
+      <div className="world-card world-card-main"><span className="world-kicker">LIFE IN YOUR CIRCLES</span><h2>圈里有<br/><em>{posts.length} 件事</em>在流动</h2><div className="world-stats"><span><b>{posts.filter((post) => post.kind === "need" || post.kind === "offer").length}</b>需要 / 提供</span><span><b>{posts.filter((post) => post.kind === "trade" || post.kind === "mystery").length}</b>互助记录</span><span><b>{posts.filter((post) => post.kind === "card").length}</b>张好人卡</span></div></div>
       <button className="world-card value-card value-card-button" onClick={() => { setView("circle"); setOverlay("rules"); }}><span className="world-kicker">协商参考</span><h3>{activeCircle.name}</h3>{activeCircle.settings.references.slice(0,2).map((item) => <div key={item.name}><b>{item.name}</b><span>{item.value}</span></div>)}<p>查看规则 →</p></button>
       <div className="world-rule"><b>可以问，<br/>也可以拒绝。</b><span>NO PRESSURE · NO RANKING</span></div>
     </aside>
@@ -858,7 +779,7 @@ function AboutView({ onExplore, onCreate, onCircle }: { onExplore: () => void; o
 }
 
 function ComposeHero({ onCompose }: { onCompose: () => void }) {
-  return <section className="agent-hero"><div className="hero-decor decor-grid"/><div className="hero-decor decor-circle"/><button className="agent-orb" onClick={onCompose} aria-label="记一笔"><i className="agent-antenna"/><span>＋</span><b>记一笔</b></button><div className="agent-copy"><Pill color="cream">FLOW · 社区记忆</Pill><h2>今天，想记下什么？</h2></div></section>;
+  return <section className="compose-banner"><h2><span>小小互助，</span><span>都值得被记得。</span></h2><button className="hero-compose" onClick={onCompose}>记一笔 <span aria-hidden="true">↗</span></button></section>;
 }
 
 function FeedView({ activeCircle, activeAccount, isAllCircles, posts: list, filter, onCompose, onCircle, onMe, onProfile, onShare, onFilter, onPost }: { activeCircle: Circle; activeAccount: ReturnType<typeof accountFor>; isAllCircles: boolean; posts: Post[]; filter: FeedFilter; onCompose: () => void; onCircle: () => void; onMe: () => void; onProfile: (id?: string) => void; onShare: (id: string) => void; onFilter: () => void; onPost: (id: string) => void }) {
@@ -866,7 +787,7 @@ function FeedView({ activeCircle, activeAccount, isAllCircles, posts: list, filt
   const myCards = activeDb.goodCards.filter((card) => card.toMemberId === activeDb.currentMemberId && card.visibility === "cross-circle").length;
   const recordedHelp = activeDb.transactions.filter((item) => item.status !== "rejected" && (item.providerId === activeDb.currentMemberId || item.receiverId === activeDb.currentMemberId)).length;
   const scopeTitle = isAllCircles ? "全部圈子" : activeCircle.name;
-  return <><section className="scope-banner"><span>{isAllCircles ? "综合动态" : "当前圈子"}</span><b>{scopeTitle}</b><small>{list.length} 条</small></section><SectionTitle eyebrow="LIVE FROM THE CIRCLE" title={`${scopeTitle} · ${labels[filter]}`} action={`筛选 · ${list.length}`} onAction={onFilter}/><FeedList posts={list} onProfile={onProfile} onShare={onShare} onPost={onPost}/><ComposeHero onCompose={onCompose}/><section className="stats-grid" aria-label="当前动态范围概览"><button className="stat-card stat-yellow" onClick={isAllCircles ? onMe : onCircle}><span>{isAllCircles ? "圈子" : "当前额度"}</span><strong>{isAllCircles ? memberById(activeDb.currentMemberId).circleIds.length : `${activeAccount.balance > 0 ? "+" : ""}${activeAccount.balance}`}</strong></button><button className="stat-card stat-pink" onClick={onMe}><span>记下的互助</span><strong>{recordedHelp}</strong></button><button className="stat-card stat-blue" onClick={() => onProfile(activeDb.currentMemberId)}><span>好人卡</span><strong>{myCards}</strong></button></section></>;
+  return <><ComposeHero onCompose={onCompose}/><section className="scope-banner"><span>{isAllCircles ? "综合动态" : "当前圈子"}</span><b>{scopeTitle}</b><small>{list.length} 条</small></section><SectionTitle eyebrow="LIVE FROM THE CIRCLE" title={`${scopeTitle} · ${labels[filter]}`} action={`筛选 · ${list.length}`} onAction={onFilter}/><FeedList posts={list} onProfile={onProfile} onShare={onShare} onPost={onPost}/><section className="stats-grid" aria-label="当前动态范围概览"><button className="stat-card stat-yellow" onClick={isAllCircles ? onMe : onCircle}><span>{isAllCircles ? "圈子" : "当前额度"}</span><strong>{isAllCircles ? memberById(activeDb.currentMemberId).circleIds.length : `${activeAccount.balance > 0 ? "+" : ""}${activeAccount.balance}`}</strong></button><button className="stat-card stat-pink" onClick={onMe}><span>记下的互助</span><strong>{recordedHelp}</strong></button><button className="stat-card stat-blue" onClick={() => onProfile(activeDb.currentMemberId)}><span>好人卡</span><strong>{myCards}</strong></button></section></>;
 }
 
 function DiscoverView({ posts: list, filter, setFilter, openCircles, onJoin, onSpeak, onProfile, onShare, onPost }: { posts: Post[]; filter: DiscoverFilter; setFilter: (filter: DiscoverFilter) => void; openCircles: DiscoverableCircle[]; onJoin: (circle: DiscoverableCircle) => Promise<void>; onSpeak: (intent?: ComposerType) => void; onProfile: (id?: string) => void; onShare: (id: string) => void; onPost: (id: string) => void }) {
@@ -914,6 +835,13 @@ function FeedList({ posts: list, onProfile, onShare, onPost }: { posts: Post[]; 
 function Modal({ children, onClose, label, wide = false, className = "" }: { children: React.ReactNode; onClose: () => void; label: string; wide?: boolean; className?: string }) {
   const dialogRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialogRef.current?.focus();
+    return () => { document.body.style.overflow = previousOverflow; if (opener?.isConnected) opener.focus(); };
+  }, []);
+  useEffect(() => {
     const closeTopDialog = (event: KeyboardEvent) => {
       const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
       if (dialogs.at(-1) !== dialogRef.current) return;
@@ -922,13 +850,13 @@ function Modal({ children, onClose, label, wide = false, className = "" }: { chi
       const controls = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])'));
       if (controls.length === 0) return;
       const first = controls[0]; const last = controls.at(-1)!;
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", closeTopDialog);
     return () => document.removeEventListener("keydown", closeTopDialog);
   }, [onClose]);
-  return <div className="modal-backdrop" onMouseDown={onClose}><section ref={dialogRef} className={`sheet ${wide ? "sheet-wide" : ""} ${className}`} role="dialog" aria-modal="true" aria-label={label} onMouseDown={(event) => event.stopPropagation()}><button className="close-button" onClick={onClose} aria-label="关闭">×</button>{children}</section></div>;
+  return <div className="modal-backdrop" onMouseDown={onClose}><section ref={dialogRef} className={`sheet ${wide ? "sheet-wide" : ""} ${className}`} tabIndex={-1} role="dialog" aria-modal="true" aria-label={label} onMouseDown={(event) => event.stopPropagation()}><button className="close-button" onClick={onClose} aria-label="关闭">×</button>{children}</section></div>;
 }
 
 function SheetHeading({ eyebrow, title, description, meta, color = "cream", visual }: { eyebrow: string; title: string; description?: React.ReactNode; meta?: React.ReactNode; color?: string; visual?: React.ReactNode }) {
@@ -956,8 +884,7 @@ function ComposerSheet({ circleId, intent, setIntent, onClose, onSubmit, onNotic
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [story, setStory] = useState("");
-  const [recordVisibility, setRecordVisibility] = useState<"public" | "mystery" | "private">("public");
-  const [cardVisibility, setCardVisibility] = useState<"cross-circle" | "hidden">("cross-circle");
+  const [recordVisibility, setRecordVisibility] = useState<"public" | "mystery">("public");
 
   // need / offer
   const [title, setTitle] = useState("");
@@ -1002,7 +929,7 @@ function ComposerSheet({ circleId, intent, setIntent, onClose, onSubmit, onNotic
           input: { intent: "record", circleId: circle.id, providerId, receiverId, amount: amt, title: heading, story: story.trim(), visibility: recordVisibility, tags: ["互助"], idempotencyKey: crypto.randomUUID() },
           title: heading,
           detail: story.trim() || heading,
-          footer: `${memberById(providerId)?.name} +${amt} · ${memberById(receiverId)?.name} −${amt} （${circle.currency}）`,
+          footer: `${memberById(providerId)?.name} +${amt} · ${memberById(receiverId)?.name} −${amt} （${circle.currency}） · ${recordVisibility === "mystery" ? "神秘记录：对外只显示金额，不显示事情" : "圈内公开"}`,
         });
         return;
       }
@@ -1010,10 +937,10 @@ function ComposerSheet({ circleId, intent, setIntent, onClose, onSubmit, onNotic
       const text = story.trim();
       if (!text) { onNotice("好人卡必须写清楚发生了什么"); return; }
       setReview({
-        input: { intent: "card", circleId: circle.id, toId: other.id, story: text, visibility: cardVisibility },
+        input: { intent: "card", circleId: circle.id, toId: other.id, story: text, visibility: "cross-circle" },
         title: `给${other.name}一张好人卡`,
         detail: text,
-        footer: `${cardVisibility === "cross-circle" ? "跨圈公开" : "仅对方可见"} · 不产生任何余额`,
+        footer: "跨圈公开 · 不产生任何余额",
       });
       return;
     }
@@ -1042,7 +969,7 @@ function ComposerSheet({ circleId, intent, setIntent, onClose, onSubmit, onNotic
     <SheetHeading eyebrow={review ? "发布" : "快速选择"} title={review ? "确认内容" : "记什么？"} color={accent}/>
 
     {!review ? <>
-      <div className="intent-grid">{intents.map((item) => <button key={item.id} className={`intent intent-${item.color} ${intent === item.id ? "selected" : ""}`} onClick={() => setIntent(item.id)}><b>{item.icon}</b><span><strong>{item.label}</strong></span></button>)}</div>
+      <div className="intent-grid">{intents.map((item) => <button key={item.id} aria-pressed={intent === item.id} className={`intent intent-${item.color} ${intent === item.id ? "selected" : ""}`} onClick={() => setIntent(item.id)}><b><FlowIcon kind={item.id}/></b><span><strong>{item.label}</strong></span></button>)}</div>
 
       {(isLedger || isCard) && (myCircles.length === 0 ? <p className="soft-note">先加入或创建一个圈子，再记录互助。</p> : others.length === 0
         ? <p className="soft-note">「{circle.name}」还没有其他成员。先到圈子页「邀请成员」，对方加入后就可以互相记录了。</p>
@@ -1055,14 +982,14 @@ function ComposerSheet({ circleId, intent, setIntent, onClose, onSubmit, onNotic
               <label><span>额度（{circle.currency}）</span><input type="number" min="1" step="1" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="例如 5"/></label>
               <label><span>一句话标题</span><input value={note} maxLength={60} onChange={(e) => setNote(e.target.value)} placeholder="例如：厦门借住一晚"/></label>
               <label><span>发生了什么（可选）</span><textarea value={story} rows={2} onChange={(e) => setStory(e.target.value)} placeholder="聊到半夜，第二天一起吃了早饭"/></label>
-              <label><span>让谁看见</span><select value={recordVisibility} onChange={(e) => setRecordVisibility(e.target.value as typeof recordVisibility)}><option value="public">圈内公开</option><option value="mystery">神秘记录（其他人只见到一笔互助）</option><option value="private">私密记一笔（仅当事人）</option></select></label>
+              <label className="inline-check"><input type="checkbox" checked={recordVisibility === "mystery"} onChange={(e) => setRecordVisibility(e.target.checked ? "mystery" : "public")}/><span><b>神秘记录</b><small>对外只显示金额，不显示事情</small></span></label>
               {circle.settings.requireConfirmation && <p className="soft-note">这个圈子的记录要由对方确认后才会入账。</p>}
               {!circle.settings.allowNegativeBalance && <p className="soft-note">这个圈子需要先有可用额度，才能接受帮助。</p>}
             </>}
 
             {isCard && <>
               <label><span>发生了什么</span><textarea value={story} rows={3} onChange={(e) => setStory(e.target.value)} placeholder="下雨那天他发现公共厨房漏水，默默修好了。"/></label>
-              <label><span>让谁看见</span><select value={cardVisibility} onChange={(e) => setCardVisibility(e.target.value as typeof cardVisibility)}><option value="cross-circle">跨圈公开，跟着 TA 走</option><option value="hidden">只给对方看</option></select></label>
+
             </>}
 
             <div className="composer-submit"><button className="primary-button" onClick={buildDraft}>查看草稿 <b>→</b></button></div>
@@ -1172,7 +1099,7 @@ function ProfileSheet({ member, activeCircleId, initialTab, focusRecordId, onClo
     const result = await response.json() as { error?: string };
     if (!response.ok) { onNotice(result.error || "更新失败"); return; }
     await onChanged();
-    onNotice(status === "active" ? "内容已重新发布" : "内容已暂停");
+    onNotice(status === "active" ? "内容已重新开启" : status === "paused" ? "内容已暂停" : "内容已结束");
   }
 
   async function amendTransaction(id: string, body: Record<string, unknown>, done: string): Promise<string | null> {
@@ -1260,12 +1187,15 @@ function ProfileSheet({ member, activeCircleId, initialTab, focusRecordId, onClo
         <header><div>
           <Pill color={transaction.visibility === "private" ? "blue" : "yellow"}>{transaction.visibility === "private" ? "仅自己可见" : transaction.visibility === "mystery" ? "神秘记录" : "圈内公开"}</Pill>
           <span className={`status status-${transaction.status}`}>{transactionStatus[transaction.status]}</span>
-          {isSelf && transaction.status === "pending" && transaction.createdById !== activeDb.currentMemberId && <button onClick={() => confirmTransaction(transaction.id)}>确认入账</button>}
           {isSelf && transaction.status === "pending" && transaction.createdById === activeDb.currentMemberId && <span className="status status-pending">等对方确认</span>}
-          {canAmend && !proposal && <button onClick={() => openCorrectionDialog(transaction, circle.currency)}>提议更正</button>}
-          {canAmend && <button onClick={() => openRejectDialog(transaction, circle.currency)}>拒绝 / 撤销</button>}
         </div><strong>{transaction.amount} {circle.currency}</strong></header>
         <h3>{transaction.title}</h3><p>{transaction.story}</p>
+        <div className="record-actions">
+          {isSelf && transaction.status === "pending" && transaction.createdById !== activeDb.currentMemberId && <button onClick={() => confirmTransaction(transaction.id)}>确认入账</button>}
+
+          {canAmend && !proposal && <button onClick={() => openCorrectionDialog(transaction, circle.currency)}>提议更正</button>}
+          {canAmend && <button onClick={() => openRejectDialog(transaction, circle.currency)}>拒绝 / 撤销</button>}
+        </div>
         {proposal && <div className="correction-note">
           <b>{mine ? "你提议" : "对方提议"}把额度改成 {proposal.amount} {circle.currency}</b>
           <span>{mine ? "等对方确认后才会生效。" : "接受后双方账户会立刻重算；谢绝的话记录保持原样。"}</span>
@@ -1614,23 +1544,9 @@ function EditProfileSheet({ member, onClose, onSaved, onNotice }: { member: Memb
   const [name, setName] = useState(member.name);
   const [bio, setBio] = useState(member.bio);
   const [wechat, setWechat] = useState(member.wechat);
-  const existingFace = parseFaceAvatar(member.avatar);
-  const initialAbstract = ABSTRACT_AVATARS.includes(member.avatar as AbstractAvatarVariant) ? member.avatar as AbstractAvatarVariant : abstractAvatarFor(member.id);
-  const [avatarMode, setAvatarMode] = useState<"abstract" | "face">(existingFace ? "face" : "abstract");
-  const [abstractAvatar, setAbstractAvatar] = useState<AbstractAvatarVariant>(initialAbstract);
-  const [face, setFace] = useState<FaceConfig>(existingFace ? { ...existingFace, accessory: "none" } : { ...DEFAULT_FACE_CONFIG });
-  const [activeAvatarPart, setActiveAvatarPart] = useState<AvatarPart>("hair");
+  const [avatar, setAvatar] = useState<AvatarVariant>(member.avatar);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const avatar: AvatarVariant = avatarMode === "face" ? encodeFaceAvatar({ ...face, accessory: "none" }) : abstractAvatar;
-
-  function randomizeFace() {
-    setAvatarMode("face");
-    setFace({ ...CURATED_FACE_PRESETS[Math.floor(Math.random() * CURATED_FACE_PRESETS.length)], accessory: "none" });
-  }
-  function visualChoice(key: string, label: string, patch: Partial<FaceConfig>, selected: boolean) {
-    return <button key={key} type="button" aria-label={label} title={label} className={`avatar-visual-choice ${selected ? "selected" : ""}`} onClick={() => setFace((current) => ({ ...current, ...patch }))}><Character variant={encodeFaceAvatar({ ...face, ...patch })} color={member.color} small/></button>;
-  }
 
   async function save() {
     try {
@@ -1654,21 +1570,7 @@ function EditProfileSheet({ member, onClose, onSaved, onNotice }: { member: Memb
       <label><span>一句话介绍</span><input value={bio} maxLength={80} onChange={(e) => setBio(e.target.value)} placeholder="例如：喜欢把坏掉的东西拆开"/></label>
       <label><span>联系方式 / 微信号（同圈可见）</span><input value={wechat} maxLength={60} onChange={(e) => setWechat(e.target.value)}/></label>
     </div>
-    <div className="avatar-customizer">
-      <div className="avatar-customizer-preview"><div className="avatar-live-preview"><Character variant={avatar} color={member.color}/></div><div><span className="form-label">我的头像</span>{avatarMode === "face" && <div className="avatar-preview-actions"><button type="button" onClick={randomizeFace}>换一套搭配</button><button type="button" onClick={() => setFace({ ...DEFAULT_FACE_CONFIG })}>恢复默认脸</button></div>}</div></div>
-      <div className="avatar-mode-row"><button type="button" className={avatarMode === "abstract" ? "selected" : ""} onClick={() => setAvatarMode("abstract")}>系统几何图案</button><button type="button" className={avatarMode === "face" ? "selected" : ""} onClick={() => setAvatarMode("face")}>定制我的脸</button></div>
-      {avatarMode === "abstract" && <div className="avatar-part-controls"><section className="avatar-option-panel"><div className="avatar-visual-grid">{ABSTRACT_AVATARS.map((variant, index) => <button key={variant} type="button" aria-label={`系统几何图案 ${index + 1}`} className={`avatar-visual-choice ${abstractAvatar === variant ? "selected" : ""}`} onClick={() => setAbstractAvatar(variant)}><Character variant={variant} color={member.color} small/></button>)}</div></section></div>}
-      {avatarMode === "face" && <div className="avatar-part-controls">
-        <div className="avatar-part-tabs">{([['hair','发型'],['eyes','眼睛'],['glasses','眼镜'],['mouth','嘴巴'],['color','颜色']] as [AvatarPart,string][]).map(([part,label]) => <button key={part} type="button" className={activeAvatarPart === part ? "selected" : ""} onClick={() => setActiveAvatarPart(part)}>{label}</button>)}</div>
-        <section className="avatar-option-panel">
-          {activeAvatarPart === "hair" && <div className="avatar-visual-grid">{AVATAR_HAIRS.map((hair) => visualChoice(hair, AVATAR_PART_LABELS.hair[hair], { hair }, face.hair === hair))}</div>}
-          {activeAvatarPart === "eyes" && <div className="avatar-visual-grid">{AVATAR_EYES.map((eyes) => visualChoice(eyes, AVATAR_PART_LABELS.eyes[eyes], { eyes }, face.eyes === eyes))}</div>}
-          {activeAvatarPart === "glasses" && <div className="avatar-visual-grid">{AVATAR_GLASSES.map((glasses) => visualChoice(glasses, AVATAR_PART_LABELS.glasses[glasses], { glasses }, face.glasses === glasses))}</div>}
-          {activeAvatarPart === "mouth" && <div className="avatar-visual-grid">{AVATAR_MOUTHS.map((mouth) => visualChoice(mouth, AVATAR_PART_LABELS.mouth[mouth], { mouth }, face.mouth === mouth))}</div>}
-          {activeAvatarPart === "color" && <div className="avatar-color-options"><span>肤色</span><div className="avatar-visual-grid">{AVATAR_SKINS.map((skin) => visualChoice(`skin-${skin}`, AVATAR_PART_LABELS.skin[skin], { skin }, face.skin === skin))}</div><span>发色</span><div className="avatar-visual-grid">{AVATAR_HAIR_COLORS.map((hairColor) => visualChoice(`hair-${hairColor}`, AVATAR_PART_LABELS.hairColor[hairColor], { hairColor }, face.hairColor === hairColor))}</div></div>}
-        </section>
-      </div>}
-    </div>
+    <AvatarWorkshop value={avatar} seed={member.id} onChange={setAvatar} renderAvatar={(value) => <Character variant={value} color={member.color}/>}/>
     <div className="detail-meta"><div><span>用户名</span><b>{member.handle}</b></div><div><span>地址</span><b>{member.address ? `${member.address.slice(0, 10)}…` : "—"}</b></div></div>
     {error && <p className="account-error" role="alert">{error}</p>}
     <div className="sheet-actions"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={saving} onClick={save}>{saving ? "正在保存…" : "保存"}</button></div>

@@ -3,7 +3,7 @@
 import { useId } from "react";
 import type { FaceConfig } from "@/app/lib/avatar";
 
-const INK = "#191919";
+const INK = "#29261f";
 const SKINS = {
   ivory: "#fffaf0",
   cream: "#fff0cf",
@@ -21,8 +21,8 @@ const HAIR = {
   plum: "#745776",
 } as const;
 
-const FACE = "M50 11C72 11 87 28 87 51C87 75 72 91 50 92C28 91 13 75 13 51C13 28 28 11 50 11Z";
-const OUTLINE = { stroke: INK, strokeWidth: 2.2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+const FACE = "M50 11C73 11 87 28 87 51C87 77 72 91 50 92C28 91 13 77 13 51C13 28 27 11 50 11Z";
+const OUTLINE = { stroke: INK, strokeWidth: 2.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 const STRAND = { fill: "none", stroke: INK, strokeWidth: 1.6, strokeLinecap: "round" as const };
 
 function BackHairLayer({ hair, color }: Pick<FaceConfig, "hair"> & { color: string }) {
@@ -122,7 +122,7 @@ export function FaceAvatarArtwork({ config }: { config: FaceConfig }) {
       <path d={FACE} fill={skin}/>
       <g clipPath={`url(#${faceClipId})`}><FrontHairLayer hair={config.hair} color={hair}/></g>
       <path d={FACE} fill="none" {...OUTLINE}/>
-      <EyesLayer eyes={config.eyes}/>
+      <ellipse cx="27" cy="67" rx="6" ry="3" fill="#ef927d" opacity=".55"/><ellipse cx="73" cy="67" rx="6" ry="3" fill="#ef927d" opacity=".55"/><EyesLayer eyes={config.eyes}/>
       <GlassesLayer glasses={config.glasses}/>
       <MouthLayer mouth={config.mouth}/>
     </svg>

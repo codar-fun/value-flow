@@ -12,7 +12,7 @@ export type ComposeInput =
       amount: number;
       title?: string;
       story?: string;
-      visibility?: "public" | "mystery" | "private";
+      visibility?: "public" | "mystery";
       tags?: string[];
       // Same key ⇒ same record: the backend replays the original instead of
       // posting again. The composer mints one per draft.
@@ -23,7 +23,7 @@ export type ComposeInput =
       circleId: string;
       toId: string;
       story: string;
-      visibility?: "cross-circle" | "hidden";
+      visibility?: "cross-circle";
     }
   | {
       intent: "need" | "offer";
@@ -40,6 +40,12 @@ export type ComposeInput =
 export async function POST(request: Request) {
   const input = (await request.json().catch(() => null)) as ComposeInput | null;
   if (!input?.intent) return Response.json({ error: "缺少内容" }, { status: 400 });
+
+  // Reject obsolete choices rather than silently making a private draft public.
+  if (input.intent === "record" && input.visibility !== undefined && input.visibility !== "public" && input.visibility !== "mystery")
+    return Response.json({ error: "记一笔仅支持圈内公开或神秘记录，请重新选择。" }, { status: 400 });
+  if (input.intent === "card" && input.visibility !== undefined && input.visibility !== "cross-circle")
+    return Response.json({ error: "好人卡为跨圈公开，请确认内容后重新发布。" }, { status: 400 });
 
   return withLoop(request, async (token, call) => {
     if (!token) return Response.json({ error: "未登录" }, { status: 401 });
@@ -75,7 +81,7 @@ export async function POST(request: Request) {
           to_id: input.toId,
           circle_id: input.circleId,
           story: input.story,
-          visibility: input.visibility ?? "cross-circle",
+          visibility: "cross-circle",
         }),
       });
     } else {

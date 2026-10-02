@@ -70,13 +70,14 @@ test("no AI assistant is wired up", async () => {
 });
 
 test("keeps the confirmed product flows and visual language in source", async () => {
-  const [page, types, css, readme, faceAvatar, abstractAvatar] = await Promise.all([
+  const [page, types, css, readme, faceAvatar, abstractAvatar, identity] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/types.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../README.md", import.meta.url), "utf8"),
     readFile(new URL("../app/components/face-avatar.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/abstract-avatar.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/identity.tsx", import.meta.url), "utf8"),
   ]);
 
   // The four record types, each with its own form.
@@ -157,11 +158,11 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // Visual identity: circles are stored as two-character theme keys and
   // rendered as pictograms; the brand and notification controls use custom
   // SVGs instead of initials or platform emoji.
-  assert.match(page, /type CircleIconKey/);
-  assert.match(page, /CIRCLE_ICON_GROUPS/);
-  assert.match(page, /function CircleGlyph/);
-  assert.match(page, /function BrandGlyph/);
-  assert.match(page, /function NotificationIcon/);
+  assert.match(identity, /type CircleIconKey/);
+  assert.match(identity, /CIRCLE_ICON_GROUPS/);
+  assert.match(identity, /function CircleGlyph/);
+  assert.match(identity, /function BrandGlyph/);
+  assert.match(identity, /function NotificationIcon/);
   assert.match(page, /选择圈子图案/);
   assert.doesNotMatch(page, /🔔/);
   assert.doesNotMatch(page, />流<\/span>/);
@@ -222,43 +223,21 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(css, /\.feed-empty/);
   assert.match(css, /safe-area-inset-bottom/);
   assert.match(css, /\.composer-submit \{ position: sticky/);
-  assert.match(css, /\.world-shell \{ width: min\(1008px/);
+  assert.match(css, /grid-template-columns: 240px minmax\(0, 1fr\) 260px/);
   // Share posters can be saved as real PNG files with their QR code intact.
   assert.match(page, /savePosterImage/);
   assert.match(page, /toPng/);
   assert.equal((page.match(/>保存图片</g) ?? []).length, 3);
-  // New accounts keep one of eight stable geometry marks; profile editing can
+  // New accounts keep one of eight stable illustrated characters; profile editing can
   // save a real, composable face without replacing the backend identity.
-  assert.doesNotMatch(page, /注册后默认使用系统几何图案，你也可以换一个/);
-  assert.match(page, /定制我的脸/);
-  assert.match(page, /ABSTRACT_AVATARS\.map/);
-  assert.match(page, /AbstractAvatarArtwork/);
-  assert.doesNotMatch(page, /ABSTRACT_AVATAR_LABELS/);
-  assert.match(page, /aria-label=\{`系统几何图案 \$\{index \+ 1\}`\}/);
-  assert.match(page, /aria-label=\{label\} title=\{label\}/);
-  assert.doesNotMatch(page, /<small>\{label\}<\/small>/);
+  assert.doesNotMatch(page, /注册后默认使用圈圈伙伴，你也可以换一个/);
+  assert.match(page, /AvatarWorkshop/);
+  assert.doesNotMatch(page, /PartnerSticker/);
+  assert.match(page, /parsePartnerAvatar/);
+  assert.doesNotMatch(page, /定制我的脸/);
   assert.match(abstractAvatar, /variant === "crop"/);
   assert.match(abstractAvatar, /variant === "wave"/);
   assert.match(abstractAvatar, /variant === "leaf"/);
-  assert.match(abstractAvatar, /#e9877b/);
-  assert.match(abstractAvatar, /#7fa6d7/);
-  assert.match(abstractAvatar, /#acd0a6/);
-  assert.match(abstractAvatar, /<circle cx="24" cy="24" r="23" \{\.\.\.outline\}/);
-  assert.match(abstractAvatar, /<clipPath id=\{clipId\}><circle cx="24" cy="24" r="23"\/><\/clipPath>/);
-  assert.match(abstractAvatar, /clipPath=\{`url\(#\$\{clipId\}\)`\}/);
-  assert.match(css, /\.abstract-avatar-artwork \{ position: absolute; inset: 0; width: 100%; height: 100%/);
-  assert.match(css, /\.character\.avatar-abstract \{ border: 0;/);
-  assert.match(css, /\.avatar-visual-choice \.character \{ width: 58px; height: 58px/);
-  assert.match(page, /换一套搭配/);
-  assert.match(page, /CURATED_FACE_PRESETS/);
-  assert.match(page, /\['hair','发型'\]/);
-  assert.doesNotMatch(page, /推荐搭配/);
-  assert.match(page, /AVATAR_HAIRS\.map/);
-  assert.match(page, /AVATAR_EYES\.map/);
-  assert.match(page, /AVATAR_GLASSES\.map/);
-  assert.match(page, /AVATAR_MOUTHS\.map/);
-  assert.doesNotMatch(page, /AVATAR_ACCESSORIES\.map/);
-  assert.doesNotMatch(page, /右下角标记/);
   assert.match(page, /FaceAvatarArtwork/);
   assert.match(css, /\.custom-avatar-artwork/);
   assert.match(css, /\.avatar-visual-choice/);
@@ -283,14 +262,13 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // Both requested record entry points open the same composer; nav items share one icon frame.
   assert.match(page, /<ComposeHero onCompose=\{onCompose\}/);
   assert.match(page, /className="compose-slot"/);
-  assert.match(page, /kind === "record" && <path d="M12 7\.5v9M7\.5 12h9"/);
+  assert.match(identity, /kind === "record" && <path d="M12 7\.5v9M7\.5 12h9"/);
   assert.match(css, /grid-template-columns: repeat\(5, minmax\(0,1fr\)\)/);
   assert.match(css, /\.bottom-nav > button\.active \.nav-icon \{ background: transparent; border-color: transparent; \}/);
   assert.match(css, /\.circle-switcher::-webkit-scrollbar \{ display: none; \}/);
   assert.match(page, /className=\{`dock-all[^\n]+<NavIcon kind="feed"/);
   assert.match(css, /\.new-circle b::before,\.new-circle b::after/);
   assert.match(css, /drop-shadow\(1px 1px 0 rgba\(25,25,25,\.28\)\)/);
-  assert.match(css, /\.topbar \.avatar-button \.character \{ box-shadow: 1px 1px 0 rgba\(25,25,25,\.24\); \}/);
   assert.match(css, /\.bell-button:hover \{ transform: translate\(-1px,-1px\); box-shadow: 2px 2px 0 rgba\(25,25,25,\.32\); \}/);
   // Every modal opens with the same compact title structure; removed copy
   // must not reappear as a second explanatory layer.
@@ -300,8 +278,10 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.doesNotMatch(page, /发布确认|发布前确认|公开边界|给出增加，收到减少/);
   // No seeded demo identities remain.
   assert.doesNotMatch(page, /"qiao"|"ashu"|"village"|"human"/);
-  // The refreshed visual language keeps the four colors with softer surfaces.
-  assert.match(css, /--line: 1\.5px/);
-  assert.match(css, /--shadow: 0 12px 30px rgba/);
+  // Shared tokens keep cards, forms, navigation and sheets in one visual system.
+  assert.match(css, /--line: 2px/);
+  assert.match(css, /--shadow: 6px 6px 0 var\(--ink\)/);
+  assert.match(identity, /function FlowIcon/);
+  assert.match(page, /<FlowIcon kind=\{item.id\}/);
   assert.match(readme, /loop-backend/);
 });

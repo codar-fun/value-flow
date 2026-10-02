@@ -9,7 +9,7 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "pnpm build && node --test tests/rendered-html.test.mjs tests/session-refresh.test.mjs tests/build-context.test.mjs tests/runtime-mapping.test.mjs",
+    "test": "pnpm build && node --test tests/rendered-html.test.mjs tests/session-refresh.test.mjs tests/build-context.test.mjs tests/runtime-mapping.test.mjs tests/compose-visibility.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {

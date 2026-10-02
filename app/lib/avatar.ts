@@ -1,3 +1,4 @@
+import { parsePartnerAvatar } from "./partner-avatar";
 import type {
   AbstractAvatarVariant,
   AvatarAccessory,
@@ -126,5 +127,5 @@ export function parseFaceAvatar(value: string | null | undefined): FaceConfig | 
 }
 
 export function isAvatarVariant(value: string | null | undefined): value is AvatarVariant {
-  return Boolean(value && (ABSTRACT_AVATARS.includes(value as AbstractAvatarVariant) || parseFaceAvatar(value)));
+  return Boolean(value && (ABSTRACT_AVATARS.includes(value as AbstractAvatarVariant) || parseFaceAvatar(value) || parsePartnerAvatar(value)));
 }
