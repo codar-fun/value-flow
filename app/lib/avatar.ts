@@ -13,7 +13,7 @@ import type {
   FaceAvatar,
 } from "@/app/types";
 
-export const ABSTRACT_AVATARS: AbstractAvatarVariant[] = ["crop", "wave", "cap", "bob", "spike", "curl", "bun", "leaf"];
+export const ABSTRACT_AVATARS: AbstractAvatarVariant[] = ["crop", "wave", "cap", "bob", "spike", "curl"];
 export const AVATAR_SKINS: AvatarSkin[] = ["ivory", "cream", "apricot", "gold"];
 export const AVATAR_FACE_SHAPES: AvatarFaceShape[] = ["round", "oval", "soft"];
 const ALL_AVATAR_HAIRS: AvatarHair[] = ["short", "crop", "fringe", "bob", "wave", "curl", "center", "shag", "bun", "undercut", "long", "longWave", "ponytail", "braid", "halfUp", "twinTail"];

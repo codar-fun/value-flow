@@ -3,7 +3,7 @@ import type { PartnerAvatar } from "./lib/partner-avatar";
 // loop-backend field (see `db/runtime.ts` for the mapping) — the only derived
 // values are the two presentational enums below, which pick a CSS class.
 
-export type AbstractAvatarVariant = "crop" | "wave" | "cap" | "bob" | "spike" | "curl" | "bun" | "leaf";
+export type AbstractAvatarVariant = "crop" | "wave" | "cap" | "bob" | "spike" | "curl";
 export type AvatarSkin = "ivory" | "cream" | "apricot" | "gold";
 export type AvatarFaceShape = "round" | "oval" | "soft";
 export type AvatarHair = "short" | "crop" | "fringe" | "bob" | "wave" | "curl" | "center" | "shag" | "bun" | "undercut" | "long" | "longWave" | "ponytail" | "braid" | "halfUp" | "twinTail";

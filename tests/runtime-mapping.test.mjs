@@ -112,18 +112,19 @@ test("record notifications carry the record they are about", () => {
 
 const { PARTNER_SHAPES, PARTNER_EXPRESSIONS, PARTNER_COLORS, encodePartnerAvatar, parsePartnerAvatar, randomPartnerAvatar } = await import("../app/lib/partner-avatar.ts");
 const { isAvatarVariant } = await import("../app/lib/avatar.ts");
-test("partner avatars roundtrip every independent combination and retain legacy avatars", () => {
+test("partner avatars roundtrip current combinations and reject retired shapes and versions", () => {
   for (const shape of Object.keys(PARTNER_SHAPES)) for (const expression of Object.keys(PARTNER_EXPRESSIONS)) for (const color of Object.keys(PARTNER_COLORS)) {
     const config = { shape, expression, color };
     const value = encodePartnerAvatar(config);
     assert.deepEqual(parsePartnerAvatar(value), config);
     assert.equal(isAvatarVariant(value), true);
   }
-  for (const value of ["leaf", "custom:cream:short:none:smile:star", "custom2:cream:round:short:ink:wink:none:smile:none"]) assert.equal(isAvatarVariant(value), true);
-  for (const value of [null, "buddy1:cat:smile", "buddy1:cat:smile:star:extra", "buddy1:cat:nope:star", "buddy1:__proto__:smile:none", "buddy1:cat:smile:constructor"]) assert.equal(parsePartnerAvatar(value), null);
+  for (const value of ["custom:cream:short:none:smile:star", "custom2:cream:round:short:ink:wink:none:smile:none"]) assert.equal(isAvatarVariant(value), true);
+  for (const value of ["leaf", "buddy1:retired:smile", "buddy1:retired:smile:star:extra", "buddy2:retired:smile:coral", "buddy3:retired:smile:coral:-", null]) assert.equal(isAvatarVariant(value), false);
+  for (const value of [null, "buddy1:retired:smile", "buddy2:retired:smile:coral", "buddy3:retired:smile:coral:-"]) assert.equal(parsePartnerAvatar(value), null);
 });
 test("random partners stay valid and change their appearance", () => {
-  let previous = { shape: "cat", expression: "smile", color: "blue" };
+  let previous = { shape: "crop", expression: "smile", color: "blue" };
   for (let i = 0; i < 100; i++) {
     const next = parsePartnerAvatar(randomPartnerAvatar(previous));
     assert.ok(next);
@@ -133,19 +134,15 @@ test("random partners stay valid and change their appearance", () => {
 });
 
 test("bootstrap preserves partner combinations for the viewer and other members", () => {
-  const avatar = "buddy1:cap:wink:flower";
+  const avatar = encodePartnerAvatar({ shape: "cap", expression: "wink", color: "coral" });
   const user = { ...account(ME, "a"), avatar };
-  const other = { ...account(OTHER, "b"), avatar: "buddy1:cat:happy:leaf" };
+  const other = { ...account(OTHER, "b"), avatar: encodePartnerAvatar({ shape: "monster", expression: "happy", color: "blue", accentColor: "coral" }) };
   const db = toAppDatabase(bootstrap({ user, members: [user, other] }));
   assert.equal(db.members.find(member => member.id === ME).avatar, avatar);
   assert.equal(db.members.find(member => member.id === OTHER).avatar, other.avatar);
 });
 
-test("old sticker avatars keep their shape and expression without retaining stickers", () => {
-  assert.deepEqual(parsePartnerAvatar("buddy1:cat:wink:flower"), { shape: "cat", expression: "wink", color: "coral" });
-  assert.equal(parsePartnerAvatar("buddy2:cat:wink:flower"), null);
-  assert.equal(parsePartnerAvatar("buddy2:cat:wink:__proto__"), null);
-  const avatar = "buddy2:octopus:happy:lavender";
-  const user = { ...account(ME, "a"), avatar };
-  assert.equal(toAppDatabase(bootstrap({ user, members: [user] })).members[0].avatar, avatar);
+test("retired partner avatar versions are no longer parsed", () => {
+  for (const avatar of ["buddy1:cap:wink:flower", "buddy2:bear:happy:lavender", "buddy3:retired:happy:lavender:-"])
+    assert.equal(parsePartnerAvatar(avatar), null);
 });
