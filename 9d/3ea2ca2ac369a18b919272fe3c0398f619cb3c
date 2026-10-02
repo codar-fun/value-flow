@@ -1,0 +1,22 @@
+docs/后端交付：Review中的记录与邀请问题.md
+  s_48a3d075bd0133::t_fbb1ec54849360 27,377,436-444
+  s_48a3d075bd0133::t_3c426ad56afe07 445-453
+docs/上线前验收报告.md
+  s_48a3d075bd0133::t_fbb1ec54849360 144,146-148,163-164,198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9d3ea2ca2ac369a18b919272fe3c0398f619cb3c",
+  "prompts": {},
+  "sessions": {
+    "s_48a3d075bd0133": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb01a44c-eda1-4b04-97da-246e51ecce9e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
