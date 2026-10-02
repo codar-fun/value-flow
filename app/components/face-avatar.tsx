@@ -80,14 +80,14 @@ function FrontHairLayer({ hair, color }: Pick<FaceConfig, "hair"> & { color: str
 }
 
 function EyesLayer({ eyes }: Pick<FaceConfig, "eyes">) {
-  const dot = (cx: number) => <circle cx={cx} cy="57" r="3.2" fill={INK}/>;
-  if (eyes === "smile") return <g {...STRAND} strokeWidth="1.7"><path d="M33 58q4-5 8 0"/><path d="M59 58q4-5 8 0"/></g>;
-  if (eyes === "wink") return <g>{dot(37)}<path {...STRAND} strokeWidth="1.7" d="M59 58l4-3 4 3"/></g>;
-  if (eyes === "calm") return <g {...STRAND} strokeWidth="1.7"><path d="M33 57h7"/><path d="M60 57h7"/></g>;
-  if (eyes === "bright") return <g>{dot(37)}{dot(63)}<circle cx="36" cy="56" r=".8" fill="#fff"/><circle cx="62" cy="56" r=".8" fill="#fff"/></g>;
-  if (eyes === "crescent") return <g {...STRAND} strokeWidth="1.7"><path d="M32 56q5 6 10 0"/><path d="M58 56q5 6 10 0"/></g>;
-  if (eyes === "glance") return <g><circle cx="37" cy="57" r="4.3" fill="#fffaf0" stroke={INK} strokeWidth="1.4"/><circle cx="63" cy="57" r="4.3" fill="#fffaf0" stroke={INK} strokeWidth="1.4"/><circle cx="38.5" cy="57" r="2" fill={INK}/><circle cx="64.5" cy="57" r="2" fill={INK}/></g>;
-  return <g>{dot(37)}{dot(63)}</g>;
+  const dot = (cx: number) => <circle cx={cx} cy="57" r="2.7" fill={INK}/>;
+  if (eyes === "smile") return <g {...STRAND} strokeWidth="1.7"><path d="M28 58q4-5 8 0"/><path d="M64 58q4-5 8 0"/></g>;
+  if (eyes === "wink") return <g>{dot(30)}<path {...STRAND} strokeWidth="1.7" d="M64 58l4-3 4 3"/></g>;
+  if (eyes === "calm") return <g {...STRAND} strokeWidth="1.7"><path d="M27 57h8"/><path d="M65 57h8"/></g>;
+  if (eyes === "bright") return <g>{dot(30)}{dot(70)}<circle cx="29" cy="56" r=".8" fill="#fff"/><circle cx="69" cy="56" r=".8" fill="#fff"/></g>;
+  if (eyes === "crescent") return <g {...STRAND} strokeWidth="1.7"><path d="M26 56q5 6 10 0"/><path d="M64 56q5 6 10 0"/></g>;
+  if (eyes === "glance") return <g><circle cx="30" cy="57" r="4" fill="#fffaf0" stroke={INK} strokeWidth="1.4"/><circle cx="70" cy="57" r="4" fill="#fffaf0" stroke={INK} strokeWidth="1.4"/><circle cx="31.5" cy="57" r="1.8" fill={INK}/><circle cx="71.5" cy="57" r="1.8" fill={INK}/></g>;
+  return <g>{dot(30)}{dot(70)}</g>;
 }
 
 function GlassesLayer({ glasses }: Pick<FaceConfig, "glasses">) {
@@ -100,13 +100,13 @@ function GlassesLayer({ glasses }: Pick<FaceConfig, "glasses">) {
 }
 
 function MouthLayer({ mouth }: Pick<FaceConfig, "mouth">) {
-  const line = { ...STRAND, strokeWidth: 1.7 };
-  if (mouth === "open") return <path d="M44 71h12c0 7-12 7-12 0Z" fill="#ef8176" stroke={INK} strokeWidth="1.5" strokeLinejoin="round"/>;
-  if (mouth === "grin") return <path d="M41 70h18c-1 9-17 9-18 0Z" fill="#fffaf0" stroke={INK} strokeWidth="1.5" strokeLinejoin="round"/>;
-  if (mouth === "flat") return <path {...line} d="M45 73h10"/>;
-  if (mouth === "pout") return <path {...line} d="M45 74q5-5 10 0"/>;
-  if (mouth === "tiny") return <path {...line} d="M47 72q3 3 6 0"/>;
-  return <path {...line} d="M43 71q7 7 14 0"/>;
+  const line = { ...STRAND, strokeWidth: 1.5 };
+  if (mouth === "open") return <path d="M48 71h4c0 5-4 5-4 0Z" fill="#ef8176" stroke={INK} strokeWidth="1.3" strokeLinejoin="round"/>;
+  if (mouth === "grin") return <path d="M46 71h8c0 6-8 6-8 0Z" fill="#fffaf0" stroke={INK} strokeWidth="1.3" strokeLinejoin="round"/>;
+  if (mouth === "flat") return <path {...line} d="M48 73h4"/>;
+  if (mouth === "pout") return <path {...line} d="M48 74q2-3 4 0"/>;
+  if (mouth === "tiny") return <path {...line} d="M49 72q1 2 2 0"/>;
+  return <path {...line} d="M47 71q3 4 6 0"/>;
 }
 
 export function FaceAvatarArtwork({ config }: { config: FaceConfig }) {

@@ -127,7 +127,7 @@ function Character({ member, text, color = "yellow", variant = "crop", small = f
     : `avatar-abstract face-${active.avatar}`;
   return <span className={`character character-${active.color} ${avatarClasses} ${symbolOnly ? "character-symbol" : ""} ${small ? "character-small" : ""}`} aria-hidden="true">{symbolOnly
     ? <span className="character-mark"><FlowIcon kind="mystery"/></span>
-    : partner ? <AbstractAvatarArtwork variant={partner.shape} expression={partner.expression} color={partner.color}/> : face
+    : partner ? <AbstractAvatarArtwork variant={partner.shape} expression={partner.expression} color={partner.color} accentColor={partner.accentColor}/> : face
       ? <FaceAvatarArtwork config={face}/>
       : <AbstractAvatarArtwork variant={active.avatar as AbstractAvatarVariant}/>}</span>;
 }

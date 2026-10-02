@@ -470,7 +470,7 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 .manual-form .inline-check > span { display: flex; flex-direction: column; gap: 3px; }
 .avatar-picker { margin: 15px 0; border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); padding: 12px; }.avatar-picker > .form-label { display: block; font-size: 12px; font-weight: 900; }.avatar-picker > p { margin: 5px 0 11px; color: var(--muted); font-size: 12px; line-height: 1.45; }.avatar-choice-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }.avatar-choice-grid button { min-width: 0; border: 2px solid transparent; border-radius: 12px; background: var(--paper-strong); padding: 7px 4px; display: grid; justify-items: center; gap: 4px; }.avatar-choice-grid button.selected { border-color: var(--ink); background: var(--yellow); box-shadow: 2px 3px 0 var(--ink); transform: translate(-1px,-1px); }.avatar-choice-grid small { font-size: 12px; font-weight: 850; }
 .avatar-customizer { margin: 15px 0; border: 2px solid var(--ink); border-radius: 18px; background: var(--paper); padding: 13px; }
-.avatar-customizer-preview { min-height: 152px; border: var(--line) solid var(--ink); border-radius: 16px; background: var(--yellow); padding: 20px; display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 20px; position: sticky; top: -28px; z-index: 3; box-shadow: var(--shadow-small); }
+.avatar-customizer-preview { min-height: 152px; border: var(--line) solid var(--ink); border-radius: 16px; background: var(--yellow); padding: 20px; display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 20px; box-shadow: var(--shadow-small); }
 .avatar-customizer-preview::after { content: none; }
 .avatar-live-preview { width: 96px; height: 110px; display: grid; place-items: center; position: relative; z-index: 1; transform: rotate(-4deg); }
 .avatar-customizer-preview .character { width: 78px; height: 78px; box-shadow: none; }
@@ -486,9 +486,8 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 .avatar-part-tabs button.selected { background: var(--yellow); box-shadow: 2px 3px 0 var(--ink); transform: translate(-1px,-1px); }
 .avatar-option-panel { min-height: 112px; border: 2px solid var(--ink); border-radius: 14px; background: var(--paper-strong); padding: 10px; }
 .avatar-visual-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 7px; }
-.avatar-visual-choice { min-width: 0; min-height: 106px; gap: 12px; border: var(--line) solid transparent; border-radius: var(--radius-control); background: var(--paper); padding: 10px 3px; display: grid; place-items: center; position: relative; }
+.avatar-visual-choice { min-width: 0; min-height: 78px; gap: 0; border: var(--line) solid transparent; border-radius: var(--radius-control); background: var(--paper); padding: 6px 3px; display: grid; place-items: center; position: relative; }
 .avatar-visual-choice .character { width: 58px; height: 58px; box-shadow: none; }
-.avatar-visual-choice small { max-width: 100%; font-size: 12px; font-weight: 850; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .avatar-visual-choice.selected { border-color: var(--ink); background: #fff4be; box-shadow: 2px 3px 0 var(--ink); transform: translate(-1px,-1px); }
 .avatar-visual-choice.selected::after { content: "✓"; position: absolute; right: -2px; top: -2px; width: 19px; height: 19px; border-left: 2px solid var(--ink); border-bottom: 2px solid var(--ink); border-radius: 0 9px 0 9px; background: var(--yellow); display: grid; place-items: center; font-size: 12px; font-weight: 950; }
 /* Partners keep their own silhouette at every size, without a frame or backdrop. */
@@ -625,7 +624,7 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 
   .hero-compose { font-size: 12px; padding: 8px 10px; }
   .hero-compose span { margin-left: 4px; }
-  .avatar-customizer-preview { top: -22px; padding: 14px; gap: 12px; }
+  .avatar-customizer-preview { padding: 14px; gap: 12px; }
   .avatar-live-preview { width: 78px; height: 92px; }
   .avatar-part-tabs button { min-height: 44px; }
   .sheet-heading { padding-right: 32px; }
