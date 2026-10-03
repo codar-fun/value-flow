@@ -10,6 +10,7 @@ export type ComposeInput =
       providerId: string;
       receiverId: string;
       amount: number;
+      description?: string;
       title?: string;
       story?: string;
       visibility?: "public" | "mystery";
@@ -27,7 +28,8 @@ export type ComposeInput =
     }
   | {
       intent: "need" | "offer";
-      title: string;
+      description?: string;
+      title?: string;
       detail?: string;
       circleIds: string[];
       visibility?: "circle" | "cross-circle";
@@ -37,6 +39,13 @@ export type ComposeInput =
       tags?: string[];
     };
 
+// The current UI has one text field. Keep the full text in story/detail and
+// derive a short legacy title only while loop-backend still requires it.
+function legacyTitle(description: string) {
+  const firstLine = description.split(/\r?\n/).find((line) => line.trim()) ?? description;
+  return Array.from(firstLine.trim().replace(/\s+/g, " ")).slice(0, 60).join("");
+}
+
 export async function POST(request: Request) {
   const input = (await request.json().catch(() => null)) as ComposeInput | null;
   if (!input?.intent) return Response.json({ error: "缺少内容" }, { status: 400 });
@@ -45,7 +54,7 @@ export async function POST(request: Request) {
   if (input.intent === "record" && input.visibility !== undefined && input.visibility !== "public" && input.visibility !== "mystery")
     return Response.json({ error: "记一笔仅支持圈内公开或神秘记录，请重新选择。" }, { status: 400 });
   if (input.intent === "card" && input.visibility !== undefined && input.visibility !== "cross-circle")
-    return Response.json({ error: "好人卡为跨圈公开，请确认内容后重新发布。" }, { status: 400 });
+    return Response.json({ error: "好人好事为跨圈公开，请确认内容后重新发布。" }, { status: 400 });
 
   return withLoop(request, async (token, call) => {
     if (!token) return Response.json({ error: "未登录" }, { status: 401 });
@@ -57,6 +66,8 @@ export async function POST(request: Request) {
         return Response.json({ error: "请选择圈子和双方成员。" }, { status: 400 });
       if (!Number.isInteger(input.amount) || input.amount <= 0)
         return Response.json({ error: "额度必须是大于 0 的整数。" }, { status: 400 });
+      const description = (input.description ?? input.story ?? input.title ?? "").trim();
+      if (!description) return Response.json({ error: "请写下这次互助发生了什么。" }, { status: 400 });
 
       res = await call(`/circles/${input.circleId}/records`, {
         method: "POST",
@@ -64,8 +75,8 @@ export async function POST(request: Request) {
           provider_id: input.providerId,
           receiver_id: input.receiverId,
           amount: input.amount,
-          title: input.title,
-          story: input.story,
+          title: legacyTitle(description),
+          story: description,
           visibility: input.visibility ?? "public",
           tags: input.tags ?? [],
           idempotency_key: input.idempotencyKey,
@@ -85,7 +96,8 @@ export async function POST(request: Request) {
         }),
       });
     } else {
-      if (!input.title?.trim()) return Response.json({ error: "请写一个标题。" }, { status: 400 });
+      const description = (input.description ?? input.detail ?? input.title ?? "").trim();
+      if (!description) return Response.json({ error: "请写下你想要或可以给什么。" }, { status: 400 });
       if (!input.circleIds?.length)
         return Response.json({ error: "请至少选择一个圈子。" }, { status: 400 });
 
@@ -93,8 +105,8 @@ export async function POST(request: Request) {
         method: "POST",
         body: JSON.stringify({
           type: input.intent,
-          title: input.title,
-          detail: input.detail ?? "",
+          title: legacyTitle(description),
+          detail: description,
           circle_ids: input.circleIds,
           visibility: input.visibility ?? "circle",
           location: input.location ?? "",

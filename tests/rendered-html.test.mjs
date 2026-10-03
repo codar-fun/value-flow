@@ -84,7 +84,7 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /记一笔/);
   assert.match(page, /我想要/);
   assert.match(page, /我可以给/);
-  assert.match(page, /好人卡/);
+  assert.match(page, /好人好事/);
   // Three-tier visibility for aid records, per the product doc.
   assert.match(page, /神秘记录/);
   assert.match(page, /仅当事人/);
@@ -101,7 +101,9 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /复制链接/);
   assert.match(page, /PostShareSheet/);
   assert.match(page, /post=/);
-  assert.match(page, /仅圈内成员可见/);
+  assert.match(page, /canSharePost\(post\)/);
+  assert.doesNotMatch(page, /我选择分享这条内容/);
+  assert.doesNotMatch(page, /登录后查看/);
   assert.match(page, /onShare\(post\.id\)/);
   assert.match(page, /isLocalUrl/);
   assert.match(page, /仅这台电脑可打开/);
@@ -171,7 +173,7 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // The feed is derived from `db`; leaving it out of the deps froze the feed
   // after every mutation while the toast claimed success.
   assert.match(page, /\}\), \[db, feedFilter, feedCircleId\]\)/);
-  assert.match(page, /\}\), \[db, discoverFilter\]\)/);
+  assert.match(page, /\}\), \[db, discoverFilter, discoverCircleId\]\)/);
   // An unresolved id must not borrow a real person's name.
   assert.match(page, /UNKNOWN_MEMBER/);
   assert.doesNotMatch(page, /members\.find\(\(member\) => member\.id === id\) \?\? members\[0\]/);
@@ -214,7 +216,7 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // Empty filters, incomplete metadata and self-profile actions stay legible.
   assert.match(page, /暂时没有动态/);
   assert.match(page, /timeAndPlace/);
-  assert.match(page, /onEditProfile/);
+  assert.match(page, /onEdit=\{\(\) => setOverlay\("editProfile"\)\}/);
   // Modal escape and editable reference lists avoid browser-native dead ends.
   assert.match(page, /event\.key === "Escape"/);
   assert.match(page, /event\.key !== "Tab"/);
@@ -228,7 +230,7 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /savePosterImage/);
   assert.match(page, /toPng/);
   assert.equal((page.match(/>保存图片</g) ?? []).length, 3);
-  // New accounts keep one of eight stable illustrated characters; profile editing can
+  // New accounts keep a stable illustrated character; profile editing can
   // save a real, composable face without replacing the backend identity.
   assert.doesNotMatch(page, /注册后默认使用圈圈伙伴，你也可以换一个/);
   assert.match(page, /AvatarWorkshop/);
@@ -237,7 +239,7 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.doesNotMatch(page, /定制我的脸/);
   assert.match(abstractAvatar, /variant === "crop"/);
   assert.match(abstractAvatar, /variant === "wave"/);
-  assert.match(abstractAvatar, /variant === "leaf"/);
+  assert.match(abstractAvatar, /variant === "spike"/);
   assert.match(page, /FaceAvatarArtwork/);
   assert.match(css, /\.custom-avatar-artwork/);
   assert.match(css, /\.avatar-visual-choice/);

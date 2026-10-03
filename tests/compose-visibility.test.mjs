@@ -23,6 +23,15 @@ test('new ledger records default to public and preserve the mystery choice and a
     assert.equal(calls.at(-1).body.story, record.story);
   }
 });
+test('one description becomes the complete body while legacy title stays short', async () => {
+  const description = '我们一起整理了公共花园。\n' + '后来还修好了浇水管。'.repeat(50);
+  assert.equal((await send({ intent: 'record', circleId: 'c', providerId: 'a', receiverId: 'b', amount: 5, description })).status, 201);
+  assert.equal(calls.at(-1).body.story, description);
+  assert.ok(calls.at(-1).body.title.length <= 60);
+  assert.equal((await send({ intent: 'offer', circleIds: ['c'], description })).status, 201);
+  assert.equal(calls.at(-1).body.detail, description);
+  assert.ok(calls.at(-1).body.title.length <= 60);
+});
 test('good cards always publish cross-circle', async () => {
   for (const visibility of [undefined, 'cross-circle']) {
     assert.equal((await send({ intent: 'card', toId: 'b', story: 'Thanks', visibility })).status, 201);

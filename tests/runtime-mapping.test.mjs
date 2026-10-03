@@ -134,7 +134,7 @@ test("random partners stay valid and change their appearance", () => {
 });
 
 test("bootstrap preserves partner combinations for the viewer and other members", () => {
-  const avatar = encodePartnerAvatar({ shape: "cap", expression: "wink", color: "coral" });
+  const avatar = encodePartnerAvatar({ shape: "cap", expression: "cheeky", color: "coral" });
   const user = { ...account(ME, "a"), avatar };
   const other = { ...account(OTHER, "b"), avatar: encodePartnerAvatar({ shape: "monster", expression: "happy", color: "blue", accentColor: "coral" }) };
   const db = toAppDatabase(bootstrap({ user, members: [user, other] }));

@@ -15,7 +15,7 @@ export function FlowIcon({ kind }: { kind: "record" | "need" | "offer" | "card" 
     {kind === "record" && <><rect x="6" y="6" width="20" height="23" rx="4" fill="var(--yellow)"/><path d="M11 3v6m10-6v6M11 16h10m-10 6h6"/></>}
     {kind === "need" && <><path d="M8 19a10 10 0 1 1 16 0l-3 4H11Z" fill="var(--pink)"/><path d="M12 27h8m-7-4v-8l3 2 3-2v8M3 5l3 3m23-3-3 3"/></>}
     {kind === "offer" && <><path d="M4 21h6l5-4h8c3 0 3 4 0 4h-5m-8 5h12l7-7M4 18v11h6V18Z" fill="var(--green)"/><path d="M18 13V5m-5 3c0 5 5 5 5 5s5 0 5-5"/></>}
-    {kind === "card" && <><path d="M16 27 5 16C-1 6 11 1 16 10 21 1 33 6 27 16Z" fill="var(--coral)"/><path d="m22 10 2 2M8 29l-3 1M27 25l2 3"/></>}
+    {kind === "card" && <path d="M16 27 5 16C-1 6 11 1 16 10 21 1 33 6 27 16Z" fill="var(--coral)"/>}
     {kind === "mystery" && <><path d="M5 26V14a11 11 0 0 1 22 0v12l-6-3-5 4-5-4Z" fill="var(--blue)"/><path d="M12 13v3m8-3v3"/></>}
   </svg>;
 }

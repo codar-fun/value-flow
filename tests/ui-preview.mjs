@@ -4,22 +4,28 @@
 import http from 'node:http';
 
 const member = (id, name, avatar, color) => ({ id, name, initial: name[0], avatar, color, handle: `@${id}`, bio: '一起把日常过得有意思。', wechat: 'ui-test-only', address: `fixture-${id}`, circleIds: ['garden', 'kitchen', 'workshop'] });
-const members = [member('test-a', '小禾', 'leaf', 'green'), member('test-b', '阿陶', 'cap', 'coral'), member('test-c', '圆圆', 'custom2:cream:round:curl:cocoa:smile:round:smile:none', 'blue')];
+const members = [member('test-a', '小禾', 'buddy3:sprout:smile:green:cream', 'green'), member('test-b', '阿陶', 'buddy3:cap:smile:coral:-', 'coral'), member('test-c', '圆圆', 'buddy3:humanGirlShort:smile:cocoa:-', 'blue')];
+members[1].circleIds = ['garden', 'kitchen'];
+members[1].discoverableCircleIds = ['new-circle'];
+members[2].circleIds = ['workshop'];
 const settings = { allowNegativeBalance: true, requireConfirmation: true, allowRejectCorrect: true, references: [{ name: '一小时协作', value: '约 5 叶子', note: '双方商量就好' }, { name: '一顿家常饭', value: '约 3 叶子', note: '' }], rules: ['可以问，也可以拒绝。', '额度只记录互助，不兑换现金。'] };
-const circles = ['街角小花园', '一起吃饭', '周末修理铺'].map((name, i) => ({ id: ['garden', 'kitchen', 'workshop'][i], name, short: ['n3', 'c1', 't1'][i], color: ['green', 'pink', 'blue'][i], currency: '叶子', members: 3, tagline: '从一件小事开始，认识身边的人。', joining: 'approval', settings, ownerId: 'test-a', isMember: true, memberIds: members.map(m => m.id) }));
-const listings = ['offer', 'need'].map((type, i) => ({ id: `listing-${i}`, memberId: members[i].id, type, title: i ? '想找一位伙伴，帮忙看看活动文案' : '周末一起修好那盏舍不得扔的台灯', detail: i ? '周四晚在线上聊半小时，也欢迎一起交流想法。' : '这周末有空，可以帮忙修小家电。带上你的好奇心，我们一起拆开看看。', circleIds: ['garden'], visibility: 'cross-circle', location: '街角公共客厅', time: '本周六下午', reference: '双方协商', tags: ['一起动手', '邻里互助'], status: 'active', createdAt: '2026-10-02' }));
+const circles = ['街角小花园', '一起吃饭', '周末修理铺'].map((name, i) => ({ id: ['garden', 'kitchen', 'workshop'][i], name, short: ['n3', 'c1', 't1'][i], color: ['green', 'pink', 'blue'][i], currency: '叶子', members: 3, tagline: '从一件小事开始，认识身边的人。', joining: 'approval', settings, ownerId: 'test-a', isMember: true, memberIds: members.filter(m => m.circleIds.includes(['garden', 'kitchen', 'workshop'][i])).map(m => m.id) }));
+const listings = ['offer', 'need'].map((type, i) => ({ id: `listing-${i}`, memberId: members[i].id, type, title: i ? '想找一位伙伴，帮忙看看活动文案' : '周末一起修好那盏舍不得扔的台灯', detail: i ? '周四晚在线上聊半小时，也欢迎一起交流想法。' : '这周末有空，可以帮忙修小家电。带上你的好奇心，我们一起拆开看看。', circleIds: ['garden'], visibility: 'cross-circle', location: '街角公共客厅', time: '本周六下午', reference: '双方协商', tags: [], status: 'active', createdAt: '2026-10-02' }));
+listings.push({ id: 'listing-2', memberId: 'test-b', type: 'offer', title: '周末一起做饭', detail: '可以一起准备一顿简单的晚餐。', circleIds: ['kitchen'], visibility: 'circle', location: '社区厨房', time: '周末', reference: '一起商量', tags: [], status: 'active', createdAt: '2026-10-02' });
 const transactions = [
   { id: 'record-0', status: 'pending', amount: 5, title: '一起整理公共花园', story: '种下几株薄荷，也聊了聊最近的生活。', pendingCorrection: null },
   { id: 'record-1', status: 'confirmed', amount: 3, title: '帮忙把花盆搬到窗边', story: '整理阳台时搭了把手，顺便分享了几株香草。', pendingCorrection: null },
   { id: 'record-2', status: 'confirmed', amount: 5, title: '修好公共客厅的落地灯', story: '换好灯线后，大家终于能在晚上一起看书了。', pendingCorrection: { amount: 6, title: '修好公共客厅的落地灯', story: '补上更换零件的时间。', proposedById: 'test-b' } },
   { id: 'record-3', status: 'rejected', amount: 2, title: '一起搬运社区书箱', story: '原记录信息有误，双方确认后撤销。', pendingCorrection: null },
-].map((record) => ({ circleId: 'garden', providerId: 'test-b', receiverId: 'test-a', createdById: 'test-b', happenedAt: '2026-10-02', recordedAt: '2026-10-02', visibility: 'public', tags: ['花园'], redacted: false, ...record }));
+].map((record) => ({ circleId: 'garden', providerId: 'test-b', receiverId: 'test-a', createdById: 'test-b', happenedAt: '2026-10-02', recordedAt: '2026-10-02', visibility: 'public', tags: [], redacted: false, ...record }));
+transactions.push({ id: 'record-4', circleId: 'kitchen', providerId: 'test-b', receiverId: 'test-a', createdById: 'test-a', happenedAt: '2026-10-02', recordedAt: '2026-10-02', visibility: 'public', tags: [], redacted: false, status: 'confirmed', amount: 3, title: '一起准备晚餐', story: '阿陶教我做了一道家常菜。', pendingCorrection: null });
 const notifications = [
   { id: 'notice-1', kind: 'record_confirmation_requested', actorId: 'test-b', amount: 5, note: '一起整理公共花园', circleId: 'garden', recordId: 'record-0', text: '有一笔互助等待确认', read: false, createdAt: '2026-10-02' },
   { id: 'notice-2', kind: 'correction_proposed', actorId: 'test-b', amount: 6, note: '', circleId: 'garden', recordId: 'record-2', text: '有一条更正提议等待处理', read: false, createdAt: '2026-10-02' },
   { id: 'notice-3', kind: 'record_rejected', actorId: 'test-b', amount: 2, note: '一起搬运社区书箱', circleId: 'garden', recordId: 'record-3', text: '这条记录已经撤销', read: true, createdAt: '2026-10-02' },
 ];
-const db = { members, circles, accounts: circles.map((c, i) => ({ memberId: 'test-a', circleId: c.id, balance: [12, -3, 8][i], given: 20, received: 8 })), listings, transactions, goodCards: [{ id: 'card-1', fromMemberId: 'test-b', toMemberId: 'test-a', story: '谢谢你在下雨前帮忙收好了大家晾着的衣服。小事，也值得被记得。', date: '2026-10-02', visibility: 'cross-circle', circleId: 'garden' }], activity: [{ id: 1, source: 'listing', sourceId: 'listing-0' }, { id: 2, source: 'listing', sourceId: 'listing-1' }, { id: 3, source: 'transaction', sourceId: 'record-0' }, { id: 4, source: 'card', sourceId: 'card-1' }], joinRequests: [{ circleId: 'garden', member: member('test-d', '新朋友', 'bob', 'pink'), note: '想一起种花', requestedAt: '2026-10-02' }], pendingCircles: [], notifications, unreadNotifications: notifications.filter((notification) => !notification.read).length, settings: { publicCards: true, publicListings: true, keepHiddenPrivate: true }, session: { authenticated: true }, currentMemberId: 'test-a' };
+const db = { members, circles, accounts: [...circles.map((c, i) => ({ memberId: 'test-a', circleId: c.id, balance: [12, -3, 8][i], given: 20, received: 8 })), { memberId: 'test-b', circleId: 'garden', balance: 2, given: 12, received: 10 }, { memberId: 'test-b', circleId: 'kitchen', balance: 3, given: 6, received: 3 }], listings, transactions, goodCards: [{ id: 'card-1', fromMemberId: 'test-b', toMemberId: 'test-a', story: '谢谢你在下雨前帮忙收好了大家晾着的衣服。小事，也值得被记得。', date: '2026-10-02', visibility: 'cross-circle', circleId: 'garden' }], activity: [{ id: 1, source: 'listing', sourceId: 'listing-0' }, { id: 2, source: 'listing', sourceId: 'listing-1' }, { id: 3, source: 'transaction', sourceId: 'record-0' }, { id: 4, source: 'card', sourceId: 'card-1' }, { id: 5, source: 'listing', sourceId: 'listing-2' }, { id: 6, source: 'transaction', sourceId: 'record-4' }], joinRequests: [{ circleId: 'garden', member: member('test-d', '新朋友', 'buddy3:bob:smile:pink:-', 'pink'), note: '想一起种花', requestedAt: '2026-10-02' }], pendingCircles: [], notifications, unreadNotifications: notifications.filter((notification) => !notification.read).length, settings: { publicCards: true, publicListings: true, keepHiddenPrivate: true }, session: { authenticated: true }, currentMemberId: 'test-a' };
+const discoverableCircle = { id: 'new-circle', name: '城市散步小队', short: 'n3', color: 'green', currency: '叶子', members: 8, tagline: '沿着街道慢慢走，认识生活在附近的人。', description: '我们每月约一次散步，也一起记录沿途发现的小店、植物和邻里故事。', rules: ['先了解活动安排，再决定是否加入。', '参加与分享都出于自愿。'], joining: 'approval', pending: false };
 const emptyDb = { ...db, circles: [], accounts: [], listings: [], transactions: [], goodCards: [], activity: [], notifications: [], joinRequests: [], unreadNotifications: 0 };
 const server = http.createServer(async (req, res) => {
   if (req.url.startsWith('/api/')) {
@@ -29,7 +35,7 @@ const server = http.createServer(async (req, res) => {
     if (req.url === '/api/bootstrap') {
       result = mode === 'empty' ? emptyDb : mode === 'login' ? { ...emptyDb, session: { authenticated: false } } : db;
       if (mode === 'error') { status = 502; result = { error: 'UI 测试：服务暂不可用' }; }
-    } else if (req.url === '/api/circles' && req.method === 'GET') result = { circles: [{ ...circles[0], id: 'new-circle', name: '城市散步小队', pending: false }] };
+    } else if (req.url === '/api/circles' && req.method === 'GET') result = { circles: [discoverableCircle] };
     else if (req.url === '/api/profile' && req.method === 'PUT') {
       let body = ''; for await (const chunk of req) body += chunk;
       Object.assign(members[0], JSON.parse(body));

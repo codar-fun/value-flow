@@ -34,6 +34,8 @@ export type Member = {
   /** loop `address` (wallet-style id) */
   address: string;
   circleIds: string[];
+  /** Discoverable circles this member belongs to that the viewer has not joined. */
+  discoverableCircleIds?: string[];
 };
 
 /** A negotiation aid, e.g. 「一晚住宿 ≈ 10 泡泡」. Stored in `circle.settings`. */
@@ -147,6 +149,8 @@ export type DiscoverableCircle = {
   currency: string;
   members: number;
   tagline: string;
+  description?: string;
+  rules?: string[];
   joining: "direct" | "approval";
   /** I've applied and am waiting on the owner — not joinable again. */
   pending?: boolean;
