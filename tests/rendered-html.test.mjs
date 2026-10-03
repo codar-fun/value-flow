@@ -88,17 +88,19 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // Three-tier visibility for aid records, per the product doc.
   assert.match(page, /神秘记录/);
   assert.match(page, /仅当事人/);
-  // The mutual-aid toggles and the circle agreements loop stores in settings.
-  assert.match(page, /允许负余额/);
-  assert.match(page, /记录需要对方确认/);
-  assert.match(page, /允许拒绝 \/ 更正/);
+  // New circles use one clear record flow; the introduction explains it.
+  assert.match(page, /完成互助后，一方记录就能入账/);
+  assert.match(page, /余额可以为负/);
+  assert.match(page, /修改记录需对方同意/);
   assert.match(page, /CircleSettingsSheet/);
   assert.match(page, /EditProfileSheet/);
   assert.match(page, /QRCode/);
   assert.match(page, /profile=/);
   assert.match(page, /listing\.visibility === "cross-circle"/);
   assert.doesNotMatch(page, /仅包含跨圈公开内容/);
+  assert.match(page, /图片二维码与下方链接相同/);
   assert.match(page, /复制链接/);
+  assert.match(page, /无需审批的邀请通道/);
   assert.match(page, /PostShareSheet/);
   assert.match(page, /post=/);
   assert.match(page, /canSharePost\(post\)/);
@@ -108,13 +110,14 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /isLocalUrl/);
   assert.match(page, /仅这台电脑可打开/);
   assert.match(page, /character-mark/);
-  // Corrections are proposed, then resolved by the other party.
-  assert.match(page, /提议更正/);
+  // Record edits are proposed, then resolved by the other party.
+  assert.match(page, /修改记录/);
   assert.match(page, /resolveCorrection/);
   assert.match(page, /TransactionDialog/);
-  assert.match(page, /发送更正提议/);
-  assert.match(page, /记录已撤销，请核对双方的社区货币余额/);
-  assert.doesNotMatch(page, /记录已撤销，双方的社区货币余额已恢复/);
+  assert.match(page, /请对方同意修改/);
+  assert.match(page, /互助标题/);
+  assert.match(page, /事情经过/);
+  assert.doesNotMatch(page, /拒绝 \/ 撤销/);
   assert.doesNotMatch(page, /window\.prompt/);
   assert.doesNotMatch(page, /window\.confirm/);
   assert.doesNotMatch(page, /确认拒绝或撤销这笔记录/);
@@ -192,7 +195,7 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // Each step blocks incomplete fields before people can reach the final save.
   assert.match(page, /canEnterStep/);
   assert.match(page, /圈子约定最多 10 条/);
-  assert.match(page, /协商参考需要同时填写名称和社区货币数量/);
+  assert.match(page, /互助参考需要同时填写名称和社区货币数量/);
   // A write that succeeded must never be reported as a failure just because
   // the follow-up refetch failed — that is what makes people retry, and on the
   // composer path a retry writes a second ledger entry.

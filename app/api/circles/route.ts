@@ -7,10 +7,6 @@ type CircleInput = {
   short?: string;
   currency?: string;
   tagline?: string;
-  joining?: string;
-  allowNegative?: boolean;
-  requireConfirmation?: boolean;
-  allowRejectCorrect?: boolean;
   references?: { name: string; value: string; note?: string }[];
   rules?: string[];
 };
@@ -62,12 +58,13 @@ export async function POST(request: Request) {
         color: colorFor(input.name!),
         currency: input.currency!.trim(),
         description: input.tagline?.trim() || "",
-        joining: input.joining === "approval" ? "approval" : "direct",
+        joining: "approval",
         settings: {
-          // Per product decision, the create form defaults negative balances ON.
-          allow_negative_balance: input.allowNegative ?? true,
-          require_confirmation: input.requireConfirmation ?? false,
-          allow_reject_correct: input.allowRejectCorrect ?? false,
+          // New circles use one shared flow: approval to join, immediate posting,
+          // negative balances, and a right to dispute or correct a record.
+          allow_negative_balance: true,
+          require_confirmation: false,
+          allow_reject_correct: true,
           references: input.references ?? [],
           rules: input.rules ?? [],
         },
