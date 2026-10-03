@@ -11,7 +11,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (loopback ? "http" : "https");
   const metadataBase = new URL(`${protocol}://${host}`);
   const title = "流动圈｜让帮助被记得";
-  const description = "记录需要、提供、互助额度和好人好事的轻量社区记忆。可以问，也可以拒绝。";
+  const description = "记录需要、提供、社区货币和好人好事的轻量社区记忆。可以问，也可以拒绝。";
 
   return {
     metadataBase,

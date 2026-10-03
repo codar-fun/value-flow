@@ -8,19 +8,19 @@ const members = [member('test-a', '小禾', 'buddy3:sprout:smile:green:cream', '
 members[1].circleIds = ['garden', 'kitchen'];
 members[1].discoverableCircleIds = ['new-circle'];
 members[2].circleIds = ['workshop'];
-const settings = { allowNegativeBalance: true, requireConfirmation: true, allowRejectCorrect: true, references: [{ name: '一小时协作', value: '约 5 叶子', note: '双方商量就好' }, { name: '一顿家常饭', value: '约 3 叶子', note: '' }], rules: ['可以问，也可以拒绝。', '额度只记录互助，不兑换现金。'] };
+const settings = { allowNegativeBalance: true, requireConfirmation: true, allowRejectCorrect: true, references: [{ name: '一小时协作', value: '约 5 叶子', note: '双方商量就好' }, { name: '一顿家常饭', value: '约 3 叶子', note: '' }], rules: ['可以问，也可以拒绝。', '社区货币只记录互助，不兑换现金。'] };
 const circles = ['街角小花园', '一起吃饭', '周末修理铺'].map((name, i) => ({ id: ['garden', 'kitchen', 'workshop'][i], name, short: ['n3', 'c1', 't1'][i], color: ['green', 'pink', 'blue'][i], currency: '叶子', members: 3, tagline: '从一件小事开始，认识身边的人。', joining: 'approval', settings, ownerId: 'test-a', isMember: true, memberIds: members.filter(m => m.circleIds.includes(['garden', 'kitchen', 'workshop'][i])).map(m => m.id) }));
-const listings = ['offer', 'need'].map((type, i) => ({ id: `listing-${i}`, memberId: members[i].id, type, title: i ? '想找一位伙伴，帮忙看看活动文案' : '周末一起修好那盏舍不得扔的台灯', detail: i ? '周四晚在线上聊半小时，也欢迎一起交流想法。' : '这周末有空，可以帮忙修小家电。带上你的好奇心，我们一起拆开看看。', circleIds: ['garden'], visibility: 'cross-circle', location: '街角公共客厅', time: '本周六下午', reference: '双方协商', tags: [], status: 'active', createdAt: '2026-10-02' }));
-listings.push({ id: 'listing-2', memberId: 'test-b', type: 'offer', title: '周末一起做饭', detail: '可以一起准备一顿简单的晚餐。', circleIds: ['kitchen'], visibility: 'circle', location: '社区厨房', time: '周末', reference: '一起商量', tags: [], status: 'active', createdAt: '2026-10-02' });
+const listings = ['offer', 'need'].map((type, i) => ({ id: `listing-${i}`, memberId: members[i].id, type, title: i ? '想找一位伙伴，帮忙看看活动文案' : '周末一起修好那盏舍不得扔的台灯', detail: i ? '周四晚在线上聊半小时，也欢迎一起交流想法。' : '这周末有空，可以帮忙修小家电。带上你的好奇心，我们一起拆开看看。', circleIds: ['garden'], visibility: 'cross-circle', location: '街角公共客厅', time: '本周六下午', reference: i ? '3 叶子' : '5 叶子', tags: [], status: 'active', createdAt: '2026-10-02' }));
+listings.push({ id: 'listing-2', memberId: 'test-b', type: 'offer', title: '周末一起做饭', detail: '可以一起准备一顿简单的晚餐。', circleIds: ['kitchen'], visibility: 'circle', location: '社区厨房', time: '周末', reference: '', tags: [], status: 'active', createdAt: '2026-10-02' });
 const transactions = [
-  { id: 'record-0', status: 'pending', amount: 5, title: '一起整理公共花园', story: '种下几株薄荷，也聊了聊最近的生活。', pendingCorrection: null },
-  { id: 'record-1', status: 'confirmed', amount: 3, title: '帮忙把花盆搬到窗边', story: '整理阳台时搭了把手，顺便分享了几株香草。', pendingCorrection: null },
-  { id: 'record-2', status: 'confirmed', amount: 5, title: '修好公共客厅的落地灯', story: '换好灯线后，大家终于能在晚上一起看书了。', pendingCorrection: { amount: 6, title: '修好公共客厅的落地灯', story: '补上更换零件的时间。', proposedById: 'test-b' } },
+  { id: 'record-0', status: 'pending', amount: 5, title: '帮忙修好浇水管', story: '阿陶帮小禾修好了公共花园的浇水管。', pendingCorrection: null },
+  { id: 'record-1', status: 'confirmed', amount: 3, title: '帮忙把花盆搬到窗边', story: '阿陶帮小禾把花盆搬到窗边，还分享了几株香草。', pendingCorrection: null },
+  { id: 'record-2', status: 'confirmed', amount: 5, title: '帮忙修好落地灯', story: '阿陶帮小禾修好了公共客厅的落地灯。', pendingCorrection: { amount: 6, title: '帮忙修好落地灯', story: '补上更换零件的时间。', proposedById: 'test-b' } },
   { id: 'record-3', status: 'rejected', amount: 2, title: '一起搬运社区书箱', story: '原记录信息有误，双方确认后撤销。', pendingCorrection: null },
 ].map((record) => ({ circleId: 'garden', providerId: 'test-b', receiverId: 'test-a', createdById: 'test-b', happenedAt: '2026-10-02', recordedAt: '2026-10-02', visibility: 'public', tags: [], redacted: false, ...record }));
 transactions.push({ id: 'record-4', circleId: 'kitchen', providerId: 'test-b', receiverId: 'test-a', createdById: 'test-a', happenedAt: '2026-10-02', recordedAt: '2026-10-02', visibility: 'public', tags: [], redacted: false, status: 'confirmed', amount: 3, title: '一起准备晚餐', story: '阿陶教我做了一道家常菜。', pendingCorrection: null });
 const notifications = [
-  { id: 'notice-1', kind: 'record_confirmation_requested', actorId: 'test-b', amount: 5, note: '一起整理公共花园', circleId: 'garden', recordId: 'record-0', text: '有一笔互助等待确认', read: false, createdAt: '2026-10-02' },
+  { id: 'notice-1', kind: 'record_confirmation_requested', actorId: 'test-b', amount: 5, note: '帮忙修好浇水管', circleId: 'garden', recordId: 'record-0', text: '有一笔互助等待确认', read: false, createdAt: '2026-10-02' },
   { id: 'notice-2', kind: 'correction_proposed', actorId: 'test-b', amount: 6, note: '', circleId: 'garden', recordId: 'record-2', text: '有一条更正提议等待处理', read: false, createdAt: '2026-10-02' },
   { id: 'notice-3', kind: 'record_rejected', actorId: 'test-b', amount: 2, note: '一起搬运社区书箱', circleId: 'garden', recordId: 'record-3', text: '这条记录已经撤销', read: true, createdAt: '2026-10-02' },
 ];

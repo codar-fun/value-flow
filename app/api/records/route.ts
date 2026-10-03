@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       if (!input.circleId || !input.providerId || !input.receiverId)
         return Response.json({ error: "请选择圈子和双方成员。" }, { status: 400 });
       if (!Number.isInteger(input.amount) || input.amount <= 0)
-        return Response.json({ error: "额度必须是大于 0 的整数。" }, { status: 400 });
+        return Response.json({ error: "社区货币数量必须是大于 0 的整数。" }, { status: 400 });
       const description = (input.description ?? input.story ?? input.title ?? "").trim();
       if (!description) return Response.json({ error: "请写下这次互助发生了什么。" }, { status: 400 });
 

@@ -113,8 +113,8 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /resolveCorrection/);
   assert.match(page, /TransactionDialog/);
   assert.match(page, /发送更正提议/);
-  assert.match(page, /记录已撤销，请核对双方额度/);
-  assert.doesNotMatch(page, /记录已撤销，双方额度已经恢复/);
+  assert.match(page, /记录已撤销，请核对双方的社区货币余额/);
+  assert.doesNotMatch(page, /记录已撤销，双方的社区货币余额已恢复/);
   assert.doesNotMatch(page, /window\.prompt/);
   assert.doesNotMatch(page, /window\.confirm/);
   assert.doesNotMatch(page, /确认拒绝或撤销这笔记录/);
@@ -192,7 +192,7 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // Each step blocks incomplete fields before people can reach the final save.
   assert.match(page, /canEnterStep/);
   assert.match(page, /圈子约定最多 10 条/);
-  assert.match(page, /协商参考需要同时填写名称和额度/);
+  assert.match(page, /协商参考需要同时填写名称和社区货币数量/);
   // A write that succeeded must never be reported as a failure just because
   // the follow-up refetch failed — that is what makes people retry, and on the
   // composer path a retry writes a second ledger entry.
@@ -215,13 +215,13 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(css, /\.topbar h1 \{[^}]*white-space: normal/);
   // Empty filters, incomplete metadata and self-profile actions stay legible.
   assert.match(page, /暂时没有动态/);
-  assert.match(page, /timeAndPlace/);
+  assert.doesNotMatch(page, /timeAndPlace/);
   assert.match(page, /onEdit=\{\(\) => setOverlay\("editProfile"\)\}/);
   // Modal escape and editable reference lists avoid browser-native dead ends.
   assert.match(page, /event\.key === "Escape"/);
   assert.match(page, /event\.key !== "Tab"/);
   assert.match(page, /removeReference/);
-  assert.match(page, /互助额度名称不能为空/);
+  assert.match(page, /社区货币名称不能为空/);
   assert.match(css, /\.feed-empty/);
   assert.match(css, /safe-area-inset-bottom/);
   assert.match(css, /\.composer-submit \{ position: sticky/);

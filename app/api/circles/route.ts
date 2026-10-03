@@ -49,7 +49,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const input = (await request.json().catch(() => ({}))) as CircleInput;
   if (!input.name?.trim() || !input.currency?.trim())
-    return Response.json({ error: "请填写圈子名称和互助额度名称。" }, { status: 400 });
+    return Response.json({ error: "请填写圈子名称和社区货币名称。" }, { status: 400 });
 
   return withLoop(request, async (token, call) => {
     if (!token) return Response.json({ error: "未登录" }, { status: 401 });
