@@ -1,28 +1,36 @@
 import { withLoop } from "@/app/lib/loop";
+import { requestOrigin } from "@/app/lib/origin";
+import { relay } from "@/app/lib/relay";
 
-// POST /api/invitations  {circleId} — mint an invite link via loop-backend and
-// return a full share URL (loop returns a relative /join/<token> path).
+type LoopInvite = {
+  id?: string;
+  path?: string;
+  type?: "regular" | "owner_direct";
+  expires_at?: string;
+  max_uses?: number | null;
+  error?: { message?: string };
+};
+
+// POST /api/invitations  {circleId, type?: "regular" | "owner_direct", ttlSeconds?}
+// Whether the caller may issue the type is decided by the backend (an
+// owner_direct link needs the current owner), not by which button is shown.
 export async function POST(request: Request) {
-  const { circleId } = (await request.json().catch(() => ({}))) as { circleId?: string };
+  const { circleId, type, ttlSeconds } = (await request.json().catch(() => ({}))) as {
+    circleId?: string;
+    type?: string;
+    ttlSeconds?: number;
+  };
   if (!circleId) return Response.json({ error: "缺少圈子。" }, { status: 400 });
-
-  // TLS terminates at the proxy, so `request.url` is http:// internally —
-  // building the share link from it would hand people an insecure URL.
-  const url = new URL(request.url);
-  const proto = request.headers.get("x-forwarded-proto")?.split(",")[0].trim();
-  const host = request.headers.get("x-forwarded-host") || url.host;
-  const origin = `${proto || url.protocol.replace(":", "")}://${host}`;
+  const origin = requestOrigin(request);
 
   return withLoop(request, async (token, call) => {
     if (!token) return Response.json({ error: "未登录" }, { status: 401 });
 
-    const res = await call(`/circles/${circleId}/invitations`, { method: "POST" });
-    const data = (await res.json().catch(() => ({}))) as {
-      id?: string;
-      path?: string;
-      expires_at?: string;
-      error?: { message?: string };
-    };
+    const res = await call(`/circles/${encodeURIComponent(circleId)}/invitations`, {
+      method: "POST",
+      body: JSON.stringify({ type: type === "owner_direct" ? "owner_direct" : "regular", ttl_seconds: ttlSeconds }),
+    });
+    const data = (await res.json().catch(() => ({}))) as LoopInvite;
     if (!res.ok || !data.path)
       return Response.json(
         { error: data.error?.message || "邀请创建失败" },
@@ -31,6 +39,19 @@ export async function POST(request: Request) {
         { status: res.ok ? 502 : res.status || 500 },
       );
 
-    return Response.json({ id: data.id, url: `${origin}${data.path}`, expiresAt: data.expires_at }, { status: 201 });
+    return Response.json(
+      { id: data.id, url: `${origin}${data.path}`, type: data.type, expiresAt: data.expires_at, maxUses: data.max_uses ?? null },
+      { status: 201 },
+    );
+  });
+}
+
+// GET /api/invitations?circleId= — live links I can manage in that circle.
+export async function GET(request: Request) {
+  const circleId = new URL(request.url).searchParams.get("circleId");
+  if (!circleId) return Response.json({ error: "缺少圈子。" }, { status: 400 });
+  return withLoop(request, async (token, call) => {
+    if (!token) return Response.json({ error: "未登录" }, { status: 401 });
+    return relay(await call(`/circles/${encodeURIComponent(circleId)}/invitations`), "读取邀请失败");
   });
 }

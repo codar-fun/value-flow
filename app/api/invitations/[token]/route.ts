@@ -1,4 +1,5 @@
 import { withLoop } from "@/app/lib/loop";
+import { relay } from "@/app/lib/relay";
 
 // POST /api/invitations/:token — redeem an invite for the signed-in user.
 // (loop requires authentication, so the invitee must be logged in first.)
@@ -18,5 +19,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       return Response.json({ error: data.error?.message || "加入失败" }, { status: res.status || 410 });
 
     return Response.json({ status: data.status || "active", circleName: data.circle?.name });
+  });
+}
+
+// DELETE /api/invitations/:id — revoke a link (its creator or the owner).
+export async function DELETE(request: Request, { params }: { params: Promise<{ token: string }> }) {
+  const { token: id } = await params;
+  return withLoop(request, async (accessToken, call) => {
+    if (!accessToken) return Response.json({ error: "未登录" }, { status: 401 });
+    return relay(await call(`/invitations/${encodeURIComponent(id)}`, { method: "DELETE" }), "撤销邀请失败");
   });
 }

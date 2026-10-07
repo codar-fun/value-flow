@@ -87,10 +87,12 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // Three-tier visibility for aid records, per the product doc.
   assert.match(page, /神秘记录/);
   assert.match(page, /仅当事人/);
-  // The mutual-aid toggles and the circle agreements loop stores in settings.
+  // Since 2026-10 every circle runs fixed bookkeeping rules: the client shows
+  // them and offers no toggles to change them.
   assert.match(page, /允许负余额/);
-  assert.match(page, /记录需要对方确认/);
-  assert.match(page, /允许拒绝 \/ 更正/);
+  assert.match(page, /记下即入账/);
+  assert.match(page, /修改或撤销需对方同意/);
+  assert.doesNotMatch(page, /setRequireConfirmation|setAllowRejectCorrect|setAllowNegative/);
   assert.match(page, /CircleSettingsSheet/);
   assert.match(page, /EditProfileSheet/);
   assert.match(page, /QRCode/);
@@ -105,12 +107,15 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /isLocalUrl/);
   assert.match(page, /仅这台电脑可打开/);
   assert.match(page, /character-mark/);
-  // Corrections are proposed, then resolved by the other party.
-  assert.match(page, /提议更正/);
-  assert.match(page, /resolveCorrection/);
+  // Changing or withdrawing a record is a proposal the other party settles;
+  // nothing in the client withdraws a record on its own.
+  assert.match(page, /申请修改/);
+  assert.match(page, /申请撤销/);
+  assert.match(page, /resolveRevision/);
   assert.match(page, /TransactionDialog/);
-  assert.match(page, /发送更正提议/);
-  assert.match(page, /记录已撤销，请核对双方额度/);
+  assert.match(page, /发送撤销申请/);
+  assert.match(page, /等待对方同意撤销/);
+  assert.doesNotMatch(page, /action: "reject"/);
   assert.doesNotMatch(page, /记录已撤销，双方额度已经恢复/);
   assert.doesNotMatch(page, /window\.prompt/);
   assert.doesNotMatch(page, /window\.confirm/);
@@ -195,10 +200,12 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // composer path a retry writes a second ledger entry.
   assert.match(page, /async function syncAfterWrite/);
   assert.doesNotMatch(page, /await refreshData\(\);\n\s*flash\(/);
-  // Invite links are single-use, so each copy mints a fresh one.
-  assert.doesNotMatch(page, /inviteUrl\|\|await createInvite/);
-  // QR previews must encode real share URLs; a decorative grid is not a QR code.
-  assert.match(page, /QrCode value=\{inviteUrl\}/);
+  // Regular invite links last 7 days and serve any number of people (H05);
+  // nothing may still describe them as single-use.
+  assert.doesNotMatch(page, /仅可使用 1 次|只能用一次/);
+  assert.match(page, /7 天内可供多人使用/);
+  // QR previews must encode the real link; a decorative grid is not a QR code.
+  assert.match(page, /QrCode value=\{current\?\.url/);
   assert.match(css, /grid-template-columns: auto minmax\(0,1fr\) auto auto/);
   // Approve/decline can't be double-tapped into two requests.
   assert.match(page, /disabled=\{busy\}/);
