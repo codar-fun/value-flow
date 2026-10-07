@@ -33,8 +33,6 @@ export type ComposeInput =
       detail?: string;
       circleIds: string[];
       visibility?: "circle" | "cross-circle";
-      location?: string;
-      time?: string;
       reference?: string;
       tags?: string[];
     };
@@ -109,8 +107,6 @@ export async function POST(request: Request) {
           detail: description,
           circle_ids: input.circleIds,
           visibility: input.visibility ?? "circle",
-          location: input.location ?? "",
-          time: input.time ?? "",
           reference: input.reference ?? "",
           tags: input.tags ?? [],
         }),

@@ -27,6 +27,14 @@ const notifications = [
 const db = { members, circles, accounts: [...circles.map((c, i) => ({ memberId: 'test-a', circleId: c.id, balance: [12, -3, 8][i], given: [20, 5, 10][i], received: [8, 8, 2][i] })), { memberId: 'test-b', circleId: 'garden', balance: 2, given: 12, received: 10 }, { memberId: 'test-b', circleId: 'kitchen', balance: 3, given: 6, received: 3 }], listings, transactions, goodCards: [{ id: 'card-1', fromMemberId: 'test-b', toMemberId: 'test-a', story: '谢谢你在下雨前帮忙收好了大家晾着的衣服。小事，也值得被记得。', date: '2026-10-02', visibility: 'cross-circle', circleId: 'garden' }], activity: [{ id: 1, source: 'listing', sourceId: 'listing-0' }, { id: 2, source: 'listing', sourceId: 'listing-1' }, { id: 3, source: 'transaction', sourceId: 'record-0' }, { id: 4, source: 'card', sourceId: 'card-1' }, { id: 5, source: 'listing', sourceId: 'listing-2' }, { id: 6, source: 'transaction', sourceId: 'record-4' }], joinRequests: [{ circleId: 'garden', member: member('test-d', '新朋友', 'buddy3:bob:smile:pink:-', 'pink'), note: '想一起种花', requestedAt: '2026-10-02' }], pendingCircles: [], notifications, unreadNotifications: notifications.filter((notification) => !notification.read).length, settings: { publicCards: true, publicListings: true, keepHiddenPrivate: true }, session: { authenticated: true }, currentMemberId: 'test-a' };
 const discoverableCircle = { id: 'new-circle', name: '城市散步小队', short: 'n3', color: 'green', currency: '叶子', members: 8, tagline: '沿着街道慢慢走，认识生活在附近的人。', description: '我们每月约一次散步，也一起记录沿途发现的小店、植物和邻里故事。', rules: ['先了解活动安排，再决定是否加入。', '参加与分享都出于自愿。'], joining: 'approval', pending: false };
 const emptyDb = { ...db, circles: [], accounts: [], listings: [], transactions: [], goodCards: [], activity: [], notifications: [], joinRequests: [], unreadNotifications: 0 };
+const managedInvites = [];
+const revisions = [];
+const shares = new Map();
+for (const circle of circles) { circle.discoverability = 'public'; circle.stats = { posted: 7, mystery: 2 }; }
+for (const record of transactions) {
+  record.version = 1; record.pendingRevision = record.pendingCorrection ? { id: 'revision-fixture', kind: 'edit', baseVersion: 1, oldValues: { amount: record.amount }, newValues: { amount: 6, story: '补上更换零件的时间。' }, proposedById: 'test-b', status: 'pending', createdAt: '2026-10-07T08:00:00Z' } : null;
+}
+function visitorCircle(circle) { return { id: circle.id, name: circle.name, icon: circle.short, description: circle.tagline, currency: circle.currency, joining: circle.joining, discoverability: 'public', member_count: circle.members, rules: circle.rules || settings.rules, references: settings.references }; }
 const server = http.createServer(async (req, res) => {
   if (req.url.startsWith('/api/')) {
     const mode = new URL(req.headers.referer || 'http://localhost').searchParams.get('ui');
@@ -39,16 +47,51 @@ const server = http.createServer(async (req, res) => {
     else if (req.url === '/api/profile' && req.method === 'PUT') {
       let body = ''; for await (const chunk of req) body += chunk;
       Object.assign(members[0], JSON.parse(body));
-    } else if (req.url === '/api/invitations' && req.method === 'POST') {
-      result = { id: `ui-preview-${Date.now()}`, url: `http://localhost:4174/join/ui-preview-only-${Date.now()}`, expiresAt: '仅用于本地界面检查' };
+    } else if (/^\/api\/members\/[^/]+\/profile/.test(req.url)) {
+      result = { other_discoverable_circles: [visitorCircle(discoverableCircle)], stats: { posted_records: 7, mystery_records: 2 } };
+    } else if (/^\/api\/circles\/[^/]+\/preview/.test(req.url)) {
+      result = { circle: visitorCircle(discoverableCircle), membership_status: null, can_apply: true };
+    } else if (/^\/api\/invitations\/[^/]+\/preview/.test(req.url)) {
+      if (req.url.includes('invalid')) { status = 410; result = { error: '邀请不存在、已过期或已撤销。' }; }
+      else result = { circle: visitorCircle(circles[0]), type: 'regular', expires_at: '2026-10-14T12:00:00Z', joins_as: 'pending', viewer_status: null, inviter: { display_name: '小禾' } };
+    } else if (req.url.startsWith('/api/invitations?') && req.method === 'GET') result = { invitations: managedInvites };
+    else if (req.url === '/api/invitations' && req.method === 'POST') {
+      let body = ''; for await (const chunk of req) body += chunk;
+      const input = JSON.parse(body);
+      const id = `ui-preview-${Date.now()}`;
+      result = { id, url: `http://localhost:4174/join/${id}`, type: input.type, expiresAt: '2026-10-14T12:00:00Z' };
+      managedInvites.push({ id, type: input.type, status: 'active', expires_at: result.expiresAt, used_count: 0 });
       status = 201;
-    } else if (req.url.startsWith('/api/circles/') && req.method === 'PATCH') {
+    } else if (req.url.startsWith('/api/invitations/') && req.method === 'DELETE') {
+      const index = managedInvites.findIndex(item => item.id === req.url.split('/')[3]);
+      if (index >= 0) managedInvites.splice(index, 1); result = { ok: true };
+    } else if (req.url.startsWith('/api/invitations/') && req.method === 'POST') result = { status: 'pending' };
+    else if (/^\/api\/records\/[^/]+\/history$/.test(req.url)) result = { revisions };
+    else if (/^\/api\/records\/[^/]+\/revisions/.test(req.url) && req.method === 'POST') {
+      let body = ''; for await (const chunk of req) body += chunk;
+      const input = JSON.parse(body), record = transactions.find(item => item.id === req.url.split('/')[3]);
+      if (req.url.split('/').length === 5) {
+        const revision = { id: `ui-revision-${Date.now()}`, kind: input.kind, baseVersion: record.version, newValues: { amount: input.amount, story: input.story, visibility: input.visibility }, oldValues: { amount: record.amount, story: record.story, visibility: record.visibility }, proposedById: 'test-a', status: 'pending', createdAt: new Date().toISOString() };
+        record.pendingRevision = revision; result = { revision }; status = 201;
+      } else { record.pendingRevision = null; result = { ok: true }; }
+    } else if (req.url === '/api/shares' && req.method === 'POST') {
+      let body = ''; for await (const chunk of req) body += chunk;
+      const input = JSON.parse(body), token = `ui-share-${Date.now()}`;
+      shares.set(token, { kind: input.kind, targetId: input.targetId });
+      result = { token, url: `http://localhost:4174/s/${token}` }; status = 201;
+    } else if (/^\/api\/shares\/[^/]+\/preview$/.test(req.url)) {
+      const share = shares.get(req.url.split('/')[3]);
+      const listing = share && listings.find(item => item.id === share.targetId);
+      if (!listing || listing.status !== 'active') { status = 410; result = { error: '这条分享已失效' }; }
+      else result = { kind: 'listing', item: { type: listing.type, title: listing.title, detail: listing.detail, reference: listing.reference, author: { display_name: '小禾' } } };
+    } else if (req.url.startsWith('/api/shares/') && req.method === 'DELETE') { shares.delete(req.url.split('/')[3]); result = { ok: true }; }
+    else if (req.url.startsWith('/api/circles/') && req.method === 'PATCH') {
       const circle = circles.find((item) => item.id === req.url.slice('/api/circles/'.length) && item.ownerId === db.currentMemberId);
       let body = ''; for await (const chunk of req) body += chunk;
       const input = JSON.parse(body || '{}');
       if (!circle) { status = 404; result = { error: '测试圈子不存在。' }; }
       else if (input.joining !== 'approval' && input.joining !== 'direct') { status = 400; result = { error: '加入方式无效。' }; }
-      else { Object.assign(circle, { joining: input.joining, currency: input.currency, tagline: input.tagline }); result = { ok: true }; }
+      else { Object.assign(circle, { joining: input.joining, currency: input.currency, tagline: input.tagline, discoverability: input.discoverability }); result = { ok: true }; }
     } else if (req.url.startsWith('/api/listings/') && req.method === 'PATCH') {
       const listing = listings.find((item) => item.id === req.url.slice('/api/listings/'.length) && item.memberId === db.currentMemberId);
       let body = ''; for await (const chunk of req) body += chunk;

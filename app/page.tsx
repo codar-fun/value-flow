@@ -3,14 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import QRCode from "qrcode";
-import type { AbstractAvatarVariant, AvatarVariant, Circle, Color, DiscoverableCircle, GoodCard, JoinRequest, Listing, Member, Transaction } from "./types";
+import type { AbstractAvatarVariant, AvatarVariant, Circle, Color, DiscoverableCircle, GoodCard, JoinRequest, Listing, Member, Revision, Transaction } from "./types";
 import { parseFaceAvatar } from "./lib/avatar";
 import { parsePartnerAvatar } from "./lib/partner-avatar";
 import { AvatarWorkshop } from "./components/avatar-workshop";
 import { FaceAvatarArtwork } from "./components/face-avatar";
 import { AbstractAvatarArtwork } from "./components/abstract-avatar";
 import { BrandGlyph, FlowIcon, CircleGlyph, NotificationIcon, NavIcon, CIRCLE_ICON_GROUPS, CIRCLE_ICON_LABELS, type CircleIconKey } from "./components/identity";
-import type { AppDatabase } from "../db/runtime";
+import { toRevision, type AppDatabase, type LoopRevision } from "../db/runtime";
 import type { ComposeInput } from "./api/records/route";
 
 type View = "feed" | "discover" | "circle" | "me" | "profile" | "about" | "create";
@@ -20,7 +20,7 @@ type DiscoverFilter = "all" | "need" | "offer" | "circles";
 type ProfileTab = "cards" | "listings" | "transactions";
 type NotificationDestination = "members" | "transactions" | "cards" | "circle";
 type Overlay = "share" | "postShare" | "circlePreview" | "rules" | "members" | "invite" | "feedFilter" | "post" | "circleSettings" | "editProfile" | "notifications" | null;
-type TransactionDialog = { transaction: Transaction; currency: string };
+type TransactionDialog = { kind: "edit" | "revoke"; transaction: Transaction; currency: string };
 
 type Post = {
   /** stable across refetches: "<source>:<sourceId>", never the array index */
@@ -48,7 +48,7 @@ function canSharePost(post: Post): boolean {
   }
   if (post.source === "transaction") {
     const record = activeDb.transactions.find((item) => item.id === post.sourceId);
-    return Boolean(record && !record.redacted && !record.pendingCorrection && (record.providerId === activeDb.currentMemberId || record.receiverId === activeDb.currentMemberId) && (record.status === "confirmed" || record.status === "corrected"));
+    return Boolean(record && !record.redacted && !record.pendingCorrection && !record.pendingRevision && (record.providerId === activeDb.currentMemberId || record.receiverId === activeDb.currentMemberId) && (record.status === "confirmed" || record.status === "corrected"));
   }
   if (post.source === "card") {
     const card = activeDb.goodCards.find((item) => item.id === post.sourceId);
@@ -79,7 +79,7 @@ function sharePostForCard(card: GoodCard): Post {
 // Empty world until the loop-backend session loads — no demo/default user.
 const initialDb: AppDatabase = { members: [], circles: [], accounts: [], listings: [], goodCards: [], transactions: [], activity: [], joinRequests: [], pendingCircles: [], notifications: [], unreadNotifications: 0, settings: { publicCards: true, publicListings: true, keepHiddenPrivate: true }, session: { authenticated: false }, currentMemberId: "" };
 const EMPTY_SETTINGS: Circle["settings"] = { allowNegativeBalance: false, requireConfirmation: false, allowRejectCorrect: false, references: [], rules: [] };
-const EMPTY_CIRCLE: Circle = { id: "", name: "", short: "•", color: "green", currency: "积分", members: 0, tagline: "", joining: "direct", settings: EMPTY_SETTINGS, ownerId: "", isMember: false, memberIds: [] };
+const EMPTY_CIRCLE: Circle = { id: "", name: "", short: "•", color: "green", currency: "积分", members: 0, tagline: "", joining: "direct", discoverability: "unknown", settings: EMPTY_SETTINGS, ownerId: "", isMember: false, memberIds: [], stats: null };
 let activeDb = initialDb;
 let members = activeDb.members;
 let circles = activeDb.circles;
@@ -145,7 +145,7 @@ function buildPosts(): Post[] {
 let posts = buildPosts();
 
 const intents: { id: ComposerType; label: string; color: Color; }[] = [
-  { id: "record", label: "记一笔交换", color: "yellow" },
+  { id: "record", label: "记一笔互助", color: "yellow" },
   { id: "card", label: "记录好事", color: "blue" },
   { id: "need", label: "我想要", color: "pink" },
   { id: "offer", label: "我可以给", color: "green" },
@@ -477,26 +477,14 @@ export default function Home() {
     };
   }, [db.session.authenticated]);
 
-  // After signing in, auto-accept a pending invite carried as ?join=<token>
-  // (from the invite landing page's "前往登录" link).
+  // After signing in from an invite (`/?join=<token>`, the invite page's
+  // "先登录" link), go back to that invite's preview. Joining stays an explicit
+  // click there — signing in never accepts an invite by itself.
   useEffect(() => {
     if (!db.session.authenticated) return;
     const joinToken = new URLSearchParams(window.location.search).get("join");
     if (!joinToken) return;
-    // Only drop the token from the URL once the accept has actually landed.
-    // Clearing it first left a transient failure with no way back to the circle.
-    fetch(`/api/invitations/${encodeURIComponent(joinToken)}`, { method: "POST" })
-      .then(async (r) => {
-        const d = (await r.json().catch(() => ({}))) as { status?: string; error?: string };
-        if (r.ok) {
-          window.history.replaceState({}, "", "/");
-          await syncAfterWrite();
-          flash(d.status === "pending" ? "已申请加入，等待管理员确认" : "已加入圈子");
-        } else {
-          flash(d.error || "加入失败");
-        }
-      })
-      .catch(() => flash("加入失败，请稍后重试"));
+    window.location.replace(`/join/${encodeURIComponent(joinToken)}`);
   }, [db.session.authenticated]);
 
   // A shared profile URL opens the same in-page profile after the recipient
@@ -531,7 +519,6 @@ export default function Home() {
   const profileNavCircles = circles.filter((item) => memberById(currentMemberId).circleIds.includes(item.id) && (view !== "profile" || selectedMember.circleIds.includes(item.id)));
   const navCircleId = view === "me" || view === "profile" ? profileCircleId : view === "circle" ? activeCircle.id : view === "discover" ? discoverCircleId : feedCircleId;
   const selectedPost = posts.find((post) => post.id === selectedPostId);
-  const previewCircle = openCircles.find((item) => item.id === previewCircleId);
   const profileComposerCircleId = profileCircleId !== "all" ? profileCircleId : profileNavCircles[0]?.id ?? activeCircle.id;
   // Shared dynamic links follow the same rule as profiles: the URL can only
   // navigate to an item already returned by the signed-in user's bootstrap.
@@ -709,7 +696,7 @@ export default function Home() {
     setComposer(false);
     await syncAfterWrite();
     if (result.id && (input.intent === "need" || input.intent === "offer")) setPublishedShare({ source: "listing", id: result.id });
-    flash(input.intent === "record" ? "记录已进入圈子，对方可以修改或拒绝" : input.intent === "card" ? "这件好事已记录在对方的跨圈主页" : "已经发布，可以分享这条内容");
+    flash(input.intent === "record" ? "互助已入账，修改或撤销需对方同意" : input.intent === "card" ? "这件好事已记录在对方的跨圈主页" : "已经发布，可以分享这条内容");
   }
 
   if (circles.length === 0 && view !== "create") {
@@ -747,8 +734,8 @@ export default function Home() {
           {view === "feed" && <FeedView activeCircle={activeCircle} isAllCircles={feedCircleId === "all"} posts={feedPosts} filter={feedFilter} onCompose={() => openComposer()} onProfile={openProfile} onShare={openPostShare} onFilter={() => setOverlay("feedFilter")} onPost={openPost}/>}
           {view === "discover" && <DiscoverView posts={discoverPosts} filter={discoverFilter} setFilter={setDiscoverFilter} openCircles={openCircles} onPreview={(id) => { setPreviewCircleId(id); setOverlay("circlePreview"); }} onSpeak={openComposer} onProfile={openProfile} onShare={openPostShare} onPost={openPost}/>}
           {view === "circle" && <CircleView circle={activeCircle} account={activeAccount} posts={posts.filter((post) => post.circleIds.includes(activeCircle.id))} visibleTradeCount={db.transactions.filter((record) => record.circleId === activeCircle.id && (record.status === "confirmed" || record.status === "corrected")).length} openCircles={openCircles} isOwner={isCircleOwner} pendingCount={db.joinRequests.filter((r) => r.circleId === activeCircle.id).length} onProfile={openProfile} onShare={openPostShare} onPost={openPost} onRules={() => setOverlay("rules")} onMembers={() => setOverlay("members")} onInvite={() => setOverlay("invite")} onSettings={() => setOverlay("circleSettings")} onDiscover={() => { setDiscoverCircleId(""); setDiscoverFilter("circles"); setView("discover"); }} onPreview={(id) => { setPreviewCircleId(id); setOverlay("circlePreview"); }} onCreate={openCreateCircle}/>}
-          {view === "me" && <ProfilePage key={`${currentMemberId}-${profileTab}`} member={memberById(currentMemberId)} circleScopeId={profileCircleId} initialTab={profileTab} focusRecordId={focusRecordId} otherCircles={[]} onNotice={flash} onChanged={syncAfterWrite} onSelectCircle={(id) => selectCircle(id)} onShareItem={openArchiveShare} onPublish={openComposer} onEdit={() => setOverlay("editProfile")} onShare={() => setOverlay("share")} onRecord={() => openComposer("record")} onPreview={() => {}}/>}
-          {view === "profile" && selectedMember.id && <ProfilePage key={`${selectedMember.id}-${profileTab}`} member={selectedMember} circleScopeId={profileCircleId} initialTab={profileTab} focusRecordId={null} otherCircles={openCircles.filter((circle) => selectedMember.discoverableCircleIds?.includes(circle.id))} onNotice={flash} onChanged={syncAfterWrite} onSelectCircle={(id) => selectCircle(id)} onShareItem={openArchiveShare} onPublish={openComposer} onEdit={() => {}} onShare={() => {}} onRecord={() => openComposer("record", selectedMember.id)} onPreview={(id) => { setPreviewCircleId(id); setOverlay("circlePreview"); }}/>}
+          {view === "me" && <ProfilePage key={`${currentMemberId}-${profileTab}`} member={memberById(currentMemberId)} circleScopeId={profileCircleId} initialTab={profileTab} focusRecordId={focusRecordId} onNotice={flash} onChanged={syncAfterWrite} onSelectCircle={(id) => selectCircle(id)} onShareItem={openArchiveShare} onPublish={openComposer} onEdit={() => setOverlay("editProfile")} onShare={() => setOverlay("share")} onRecord={() => openComposer("record")} onPreview={() => {}}/>}
+          {view === "profile" && selectedMember.id && <ProfilePage key={`${selectedMember.id}-${profileTab}`} member={selectedMember} circleScopeId={profileCircleId} initialTab={profileTab} focusRecordId={null} onNotice={flash} onChanged={syncAfterWrite} onSelectCircle={(id) => selectCircle(id)} onShareItem={openArchiveShare} onPublish={openComposer} onEdit={() => {}} onShare={() => {}} onRecord={() => openComposer("record", selectedMember.id)} onPreview={(id) => { setPreviewCircleId(id); setOverlay("circlePreview"); }}/>}
         </div>
         <nav className="bottom-nav" aria-label="主要导航">
           <button aria-current={view === "feed" ? "page" : undefined} className={view === "feed" ? "active" : ""} onClick={openFeed}><NavIcon kind="feed"/><small>动态</small></button>
@@ -780,10 +767,10 @@ export default function Home() {
       setOverlay(null); flash(canShare?"已经交给系统分享":"个人档案链接已复制，可以发到微信群");
     }}/>}
     {overlay === "postShare" && sharePost && canSharePost(sharePost) && <PostShareSheet post={sharePost} onClose={() => setOverlay(null)} onNotice={flash}/>}
-    {overlay === "circlePreview" && previewCircle && <CirclePreviewSheet circle={previewCircle} onClose={() => setOverlay(null)} onJoin={async () => { if (await joinCircle(previewCircle)) setOverlay(null); }}/>}
+    {overlay === "circlePreview" && previewCircleId && <CirclePreviewSheet circleId={previewCircleId} onClose={() => setOverlay(null)} onJoin={async (circle) => { if (await joinCircle(circle)) setOverlay(null); }}/>}
     {overlay === "rules" && <RulesSheet circle={activeCircle} onClose={() => setOverlay(null)}/>}
     {overlay === "members" && <MembersSheet circle={activeCircle} requests={db.joinRequests.filter((r) => r.circleId === activeCircle.id)} isOwner={isCircleOwner} onProfile={openProfile} onInvite={() => openSubSheet("invite")} onClose={closeOverlay} onResolve={resolveRequest} onLeave={leaveCircle} onTransfer={transferOwner}/>}
-    {overlay === "invite" && <InviteSheet circle={activeCircle} isOwner={isCircleOwner} onClose={closeOverlay} onNotice={flash}/>}
+    {overlay === "invite" && <InviteSheet circle={activeCircle} onClose={closeOverlay} onNotice={flash}/>}
     {overlay === "feedFilter" && <FeedFilterSheet active={feedFilter} onSelect={(next) => { setFeedFilter(next); setOverlay(null); }} onClose={() => setOverlay(null)}/>}
     {overlay === "post" && selectedPost && <PostSheet key={`${selectedPost.id}:${postContactRequested}`} post={selectedPost} contactRequested={postContactRequested} onProfile={() => selectedPost.memberId && openProfile(selectedPost.memberId)} onShare={() => openPostShare(selectedPost.id)} onNotice={flash} onClose={() => setOverlay(null)}/>}
     {overlay === "notifications" && <NotificationsSheet notifications={db.notifications} onClose={() => { setOverlay(null); if (db.unreadNotifications > 0) void markNotificationsRead(); }} onOpen={openNotification}/>}
@@ -920,7 +907,7 @@ function CircleView({ circle, account, posts: circlePosts, visibleTradeCount, op
   const { references } = circle.settings;
   return <><div className="circle-quick-nav"><button onClick={onDiscover}>发现其他圈子</button><button onClick={onCreate}>＋ 创建新圈子</button></div><section className={`page-hero circle-hero hero-${circle.color}`}><div><Pill color="cream">{isOwner ? "我创建的圈子" : "我加入的圈子"} · {circle.currency}</Pill><h2>{circle.name}</h2><p>{circle.tagline}</p>{!isOwner && <p>圈主：{memberById(circle.ownerId)?.name || "其他成员"} · 我是成员</p>}</div><div className="circle-hero-actions"><button onClick={onInvite}>邀请成员</button>{isOwner && <button onClick={onSettings}>圈子设置</button>}</div></section>
     <button className="camp-preview" onClick={onRules}><CircleGlyph icon={circle.short} seed={circle.id} size="regular"/><div><small>CAMP PROFILE · 圈子介绍</small><h3>{circle.tagline || "还没有写圈子介绍"}</h3><p>{circle.joining === "approval" ? "新成员申请需圈主审批" : "新成员可直接加入"} · {circle.members} 位成员</p></div><b>进入介绍 →</b></button>
-    <section className="circle-trade-count" aria-label="圈内互助概览"><div><span>圈内互助</span><strong>{visibleTradeCount} <small>笔</small></strong></div><p>当前可见、已入账的互助记录</p></section>
+    <section className="circle-trade-count" aria-label="圈内互助概览"><div><span>圈内互助</span><strong>{circle.stats?.posted ?? visibleTradeCount} <small>笔</small></strong></div><p>{circle.stats ? "全圈已入账的互助记录" : "当前可见、已入账的互助记录"}</p></section>
     <section className="balance-panel"><div><span>社区货币余额</span><strong>{account.balance > 0 ? "+" : ""}{account.balance} <em>{circle.currency}</em></strong><small>我在这个圈的余额</small></div><div><span>给出过</span><strong>{account.given}</strong><small>来自真实互助</small></div><div><span>收到过</span><strong>{account.received}</strong><small>接受帮助也很好</small></div></section>
     <SectionTitle eyebrow="REFERENCE" title="互助参考" action={isOwner ? "编辑" : "查看规则"} onAction={isOwner ? onSettings : onRules}/>
     {references.length > 0
@@ -1136,6 +1123,40 @@ function ShareSheet({ shareUrl, onClose, onCopy, onDone, onNotice }: { shareUrl:
 function PostShareSheet({ post, onClose, onNotice }: { post: Post; onClose: () => void; onNotice: (message: string) => void }) {
   const posterRef = useRef<HTMLDivElement>(null);
   const listing = post.source === "listing" ? activeDb.listings.find((item) => item.id === post.sourceId) : undefined;
+  const record = post.source === "transaction" ? activeDb.transactions.find((item) => item.id === post.sourceId) : undefined;
+  const card = post.source === "card" ? activeDb.goodCards.find((item) => item.id === post.sourceId) : undefined;
+  const publishable = canSharePost(post) && (!record || record.visibility === "public" && !record.pendingRevision) && (!card || card.visibility === "cross-circle");
+  const [publicLink, setPublicLink] = useState<{ url: string; token: string } | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
+  async function createPublicLink() {
+    if (linkBusy) return;
+    setLinkBusy(true);
+    try {
+      const response = await fetch("/api/shares", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: listing ? "listing" : record ? "record" : "good_card", targetId: post.sourceId }) });
+      const result = await response.json() as { url?: string; token?: string; error?: string };
+      if (!response.ok || !result.url || !result.token) throw new Error(result.error || "生成公开链接失败");
+      setPublicLink({ url: result.url, token: result.token });
+    } catch (error) { onNotice(error instanceof Error ? error.message : "生成失败"); }
+    finally { setLinkBusy(false); }
+  }
+  async function revokePublicLink() {
+    if (!publicLink || linkBusy) return;
+    setLinkBusy(true);
+    try {
+      const response = await fetch(`/api/shares/${encodeURIComponent(publicLink.token)}`, { method: "DELETE" });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "收回失败");
+      setPublicLink(null); onNotice("公开链接已收回");
+    } catch (error) { onNotice(error instanceof Error ? error.message : "收回失败"); }
+    finally { setLinkBusy(false); }
+  }
+  async function shareLink() {
+    if (!publicLink) return;
+    try {
+      if (!isLocalUrl(publicLink.url) && typeof navigator.share === "function") await navigator.share({ title: post.badge, url: publicLink.url });
+      else { await navigator.clipboard.writeText(publicLink.url); onNotice(isLocalUrl(publicLink.url) ? "已复制本地测试链接，仅这台电脑可打开" : "公开链接已复制"); }
+    } catch (error) { if (!(error instanceof DOMException && error.name === "AbortError")) onNotice("分享失败，请手动复制链接"); }
+  }
 
   async function shareImage() {
     try {
@@ -1159,23 +1180,63 @@ function PostShareSheet({ post, onClose, onNotice }: { post: Post; onClose: () =
     <SheetHeading eyebrow="主动分享" title={post.source === "listing" ? post.badge : post.source === "card" ? "好人好事" : "互助记录"} color={post.color}/>
     <div ref={posterRef} className={`post-share-poster share-${post.color}`}>
       <div className="poster-top"><Character member={post.memberId ? memberById(post.memberId) : undefined} text={post.memberId ? undefined : post.avatar} color={post.color} variant={post.avatarVariant}/><div><span>{post.caption}</span><h2>{post.person}</h2></div></div><Pill color="cream">{post.badge}</Pill><p className="post-share-copy">{post.text}</p>{listing?.reference && <p className="post-share-reference"><span>{listing.type === "need" ? "愿意给出" : "希望收到"}</span><b>{listing.reference}</b></p>}<small>{post.meta}</small>
+      {publicLink && <QrCode value={publicLink.url}/>}
     </div>
     <p className="share-explainer">图片会展示上面的完整内容。{post.source === "transaction" ? "发送前，请确认故事中没有不想公开的他人信息。" : "可以保存，也可以用手机直接发送。"}</p>
     <div className="sheet-actions"><button className="secondary-button" onClick={saveImage}>保存图片</button><button className="primary-button" onClick={shareImage}>分享图片</button></div>
+    {publishable && !publicLink && <button className="text-link" disabled={linkBusy} onClick={createPublicLink}>{linkBusy ? "正在生成…" : "生成公开链接"}</button>}
+    {publicLink && <><p className="soft-note">持链接可直接查看这一条。暂停、结束或撤销后失效。</p><div className="share-link-row"><span>{publicLink.url}</span><button className="secondary-button" onClick={shareLink}>分享链接</button></div><button className="text-link" disabled={linkBusy} onClick={revokePublicLink}>收回公开链接</button>{isLocalUrl(publicLink.url) && <p className="local-link-warning">本地测试地址，仅这台电脑可打开。</p>}</>}
   </Modal>;
 }
 
-function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, otherCircles, onNotice, onChanged, onSelectCircle, onShareItem, onPublish, onEdit, onShare, onRecord, onPreview }: { member: Member; circleScopeId: string; initialTab: ProfileTab; focusRecordId?: string | null; otherCircles: DiscoverableCircle[]; onNotice: (message: string) => void; onChanged: () => Promise<void>; onSelectCircle: (id: string) => void; onShareItem: (source: "listing" | "transaction" | "card", id: string) => void; onPublish: (intent: ComposerType) => void; onEdit: () => void; onShare: () => void; onRecord: () => void; onPreview: (id: string) => void }) {
+const revisionStatus = { pending: "等待对方", accepted: "已同意", declined: "已拒绝", withdrawn: "已撤回" } as const;
+const visibilityName: Record<string, string> = { public: "圈内公开", mystery: "神秘记录", private: "仅双方可见" };
+
+// "额度 4 → 6", "描述改为「…」", "可见范围 圈内公开 → 神秘记录"
+function revisionLines(revision: Revision, currency: string): string[] {
+  const { oldValues: from, newValues: to } = revision;
+  const lines: string[] = [];
+  if (to.amount !== undefined) lines.push(`社区货币 ${from.amount ?? "?"} → ${to.amount} ${currency}`);
+  if (to.story !== undefined) lines.push(`描述改为「${String(to.story)}」`);
+  if (to.visibility !== undefined) lines.push(`可见范围 ${visibilityName[String(from.visibility)] ?? from.visibility} → ${visibilityName[String(to.visibility)] ?? to.visibility}`);
+  return lines;
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+
+type OtherCircle = { id: string; name: string; icon: string | null; description: string | null; currency: string | null; member_count: number; joining: string; membership_status: string | null };
+
+function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, onNotice, onChanged, onSelectCircle, onShareItem, onPublish, onEdit, onShare, onRecord, onPreview }: { member: Member; circleScopeId: string; initialTab: ProfileTab; focusRecordId?: string | null; onNotice: (message: string) => void; onChanged: () => Promise<void>; onSelectCircle: (id: string) => void; onShareItem: (source: "listing" | "transaction" | "card", id: string) => void; onPublish: (intent: ComposerType) => void; onEdit: () => void; onShare: () => void; onRecord: () => void; onPreview: (id: string) => void }) {
   // Opened from a notification: bring that one record into view.
   const focusedRef = useRef<HTMLElement | null>(null);
   useEffect(() => { focusedRef.current?.scrollIntoView({ block: "center" }); }, [focusRecordId]);
   const [contact, setContact] = useState(false);
   const [tab, setTab] = useState<ProfileTab>(initialTab);
   const [transactionDialog, setTransactionDialog] = useState<TransactionDialog | null>(null);
-  const [correctionDraft, setCorrectionDraft] = useState({ amount: "", title: "", story: "" });
+  const [draftAmount, setDraftAmount] = useState("");
+  const [draftStory, setDraftStory] = useState("");
+  const [draftVisibility, setDraftVisibility] = useState<Transaction["visibility"]>("public");
+  const [history, setHistory] = useState<Record<string, Revision[] | "loading" | "error">>({});
+  const [viewerProfile, setViewerProfile] = useState<{ other_discoverable_circles: OtherCircle[]; stats: { posted_records: number; mystery_records: number } | null } | "error" | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const query = circleScopeId === "all" ? "" : `?circleId=${encodeURIComponent(circleScopeId)}`;
+    fetch(`/api/members/${encodeURIComponent(member.id)}/profile${query}`, { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({})) as { other_discoverable_circles: OtherCircle[]; stats: { posted_records: number; mystery_records: number } | null };
+        if (alive) setViewerProfile(response.ok && Array.isArray(data.other_discoverable_circles) ? data : "error");
+      }).catch(() => { if (alive) setViewerProfile("error"); });
+    return () => { alive = false; };
+  }, [member.id, circleScopeId, onChanged]);
   const [transactionBusy, setTransactionBusy] = useState(false);
   const [transactionError, setTransactionError] = useState("");
   const [listingDialog, setListingDialog] = useState<Listing | null>(null);
+  const [listingToClose, setListingToClose] = useState<Listing | null>(null);
   const [listingDraft, setListingDraft] = useState({ detail: "", reference: "", visibility: "circle" as Listing["visibility"], circleIds: [] as string[] });
   const [listingBusy, setListingBusy] = useState(false);
   const [listingError, setListingError] = useState("");
@@ -1194,31 +1255,17 @@ function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, otherCi
   });
 
   async function changeListing(id: string, status: "active" | "paused" | "closed") {
-    const response = await fetch(`/api/listings/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) });
-    const result = await response.json() as { error?: string };
-    if (!response.ok) { onNotice(result.error || "更新失败"); return; }
-    await onChanged();
-    onNotice(status === "active" ? "内容已恢复展示" : status === "paused" ? "内容已暂停展示" : "内容已结束");
-  }
-
-  async function amendTransaction(id: string, body: Record<string, unknown>, done: string): Promise<string | null> {
+    if (listingBusy) return;
+    setListingBusy(true);
     try {
-      const response = await fetch(`/api/transactions/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      const result = await response.json().catch(() => ({})) as { error?: string };
+      const response = await fetch(`/api/listings/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) });
+      const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "更新失败");
       await onChanged();
-      onNotice(done);
-      return null;
-    } catch (error) {
-      return error instanceof Error ? error.message : "更新失败";
-    }
-  }
-
-  // Proposing a correction moves nothing — the other party has to accept it.
-  function openCorrectionDialog(transaction: Transaction, currency: string) {
-    setCorrectionDraft({ amount: String(transaction.amount), title: transaction.title, story: transaction.story });
-    setTransactionError("");
-    setTransactionDialog({ transaction, currency });
+      setListingToClose(null);
+      onNotice(status === "active" ? "内容已恢复展示" : status === "paused" ? "内容已暂停展示" : "内容已结束");
+    } catch (error) { onNotice(error instanceof Error ? error.message : "更新失败，请稍后再试"); }
+    finally { setListingBusy(false); }
   }
 
   function openListingDialog(listing: Listing) {
@@ -1245,7 +1292,7 @@ function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, otherCi
       const saved = world.listings?.find((item) => item.id === listingDialog.id);
       await onChanged();
       if (!saved || saved.detail !== detail || saved.reference !== body.reference || saved.visibility !== body.visibility || [...saved.circleIds].sort().join(",") !== [...body.circleIds].sort().join(","))
-        throw new Error("修改没有完整保存。请保留原内容，等待后端支持编辑。");
+        throw new Error("保存结果与填写内容不一致，请保留草稿并刷新核对。");
       setListingDialog(null);
       onNotice("内容已更新");
     } catch (error) {
@@ -1255,37 +1302,68 @@ function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, otherCi
     }
   }
 
+  // Since 2026-10 a posted record changes only with both parties' consent:
+  // proposing moves nothing; the other party accepts or declines.
+  function openRevisionDialog(kind: TransactionDialog["kind"], transaction: Transaction, currency: string) {
+    setDraftAmount(String(transaction.amount));
+    setDraftStory(transaction.story);
+    setDraftVisibility(transaction.visibility);
+    setTransactionError("");
+    setTransactionDialog({ kind, transaction, currency });
+  }
+
   async function submitTransactionDialog() {
     if (!transactionDialog || transactionBusy) return;
-    const { transaction } = transactionDialog;
-    const amount = Number(correctionDraft.amount);
-    const title = correctionDraft.title.trim();
-    const story = correctionDraft.story.trim();
-    if (!Number.isInteger(amount) || amount <= 0) { setTransactionError(`请输入大于 0 的${transactionDialog.currency}数量`); return; }
-    if (!title && !story) { setTransactionError("请保留至少一项互助内容"); return; }
-    if (amount === transaction.amount && title === transaction.title && story === transaction.story) { setTransactionError("请先修改金额或内容"); return; }
+    const { kind, transaction } = transactionDialog;
+    const body: Record<string, unknown> = { kind, baseVersion: transaction.version };
+    if (kind === "edit") {
+      const amount = Number(draftAmount);
+      if (!Number.isInteger(amount) || amount <= 0) { setTransactionError("额度必须是大于 0 的整数"); return; }
+      // Only what actually changed — each part is its own proposal content.
+      if (amount !== transaction.amount) body.amount = amount;
+      if (draftStory.trim() !== transaction.story.trim()) body.story = draftStory.trim();
+      if (draftVisibility !== transaction.visibility) body.visibility = draftVisibility;
+      if (Object.keys(body).length === 2) { setTransactionError("没有任何改动"); return; }
+    }
     setTransactionBusy(true);
     setTransactionError("");
-    const error = await amendTransaction(transaction.id, { action: "correct", amount, title, story }, "修改已发给对方，等对方同意后生效");
-    setTransactionBusy(false);
-    if (error) { setTransactionError(error); return; }
-    setTransactionDialog(null);
+    try {
+      const response = await fetch(`/api/records/${transaction.id}/revisions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "提交失败");
+      await onChanged();
+      onNotice(kind === "revoke" ? "已申请撤销，等待对方同意" : "修改已提交，等待对方同意");
+      setTransactionDialog(null);
+    } catch (error) {
+      // The draft stays in the dialog so nothing typed is lost.
+      setTransactionError(error instanceof Error ? error.message : "提交失败");
+    } finally {
+      setTransactionBusy(false);
+    }
   }
 
-  async function resolveCorrection(id: string, action: "accept" | "decline" | "withdraw") {
-    const response = await fetch(`/api/records/${id}/correction`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
+  async function resolveRevision(transaction: Transaction, revision: Revision, action: "accept" | "decline" | "withdraw") {
+    const response = await fetch(`/api/records/${transaction.id}/revisions/${revision.id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
     const result = await response.json().catch(() => ({})) as { error?: string };
-    if (!response.ok) { onNotice(result.error || "更新失败"); return; }
+    if (!response.ok) { onNotice(result.error || "处理失败"); await onChanged(); return; }
     await onChanged();
-    onNotice(action === "accept" ? "已接受更正，双方账户已重算" : action === "decline" ? "已谢绝更正，记录保持原样" : "已撤回提议");
+    setHistory((current) => { const next = { ...current }; delete next[transaction.id]; return next; });
+    onNotice(action === "accept"
+      ? (revision.kind === "revoke" ? "已同意撤销，双方额度已退回" : "已同意修改，双方账户已重算")
+      : action === "decline" ? "已拒绝，记录保持原样" : "已撤回申请");
   }
 
-  async function confirmTransaction(id: string) {
-    const response = await fetch(`/api/records/${id}/confirm`, { method: "POST" });
-    const result = await response.json().catch(() => ({})) as { error?: string };
-    if (!response.ok) { onNotice(result.error || "确认失败"); return; }
-    await onChanged();
-    onNotice("已确认，社区货币已入账");
+  async function toggleHistory(id: string) {
+    if (history[id] && history[id] !== "error") { setHistory((current) => { const next = { ...current }; delete next[id]; return next; }); return; }
+    setHistory((current) => ({ ...current, [id]: "loading" }));
+    try {
+      const response = await fetch(`/api/records/${id}/history`);
+      const result = await response.json() as { revisions?: LoopRevision[]; error?: string };
+      if (!response.ok || !result.revisions) throw new Error(result.error || "读取失败");
+      setHistory((current) => ({ ...current, [id]: result.revisions!.map(toRevision) }));
+    } catch {
+      setHistory((current) => ({ ...current, [id]: "error" }));
+    }
   }
 
   const statusLabel = { active: "展示中", paused: "暂停展示", closed: "已结束" } as const;
@@ -1298,48 +1376,59 @@ function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, otherCi
     {isSelf && <div className="profile-publish-actions"><button onClick={() => onPublish("need")}><Pill color="pink">我想要</Pill><b>发布需要 ＋</b></button><button onClick={() => onPublish("offer")}><Pill color="green">我可以给</Pill><b>发布提供 ＋</b></button></div>}
     <p className="profile-scope-note">{scopedCircleId ? `${activeCircle?.name} · ${isSelf ? "我的圈内内容" : "你们共同圈子的可见内容"}` : isSelf ? "我在全部圈子的内容" : "你们共同圈子的可见内容"}</p>
     {activeAccount && activeCircle && <div className="profile-numbers"><div><b>{activeAccount.balance > 0 ? "+" : ""}{activeAccount.balance} {activeCircle.currency}</b><span>{activeCircle.name} · 社区货币余额</span></div><div><b>{activeAccount.given}</b><span>在本圈给出过</span></div><div><b>{activeAccount.received}</b><span>在本圈收到过</span></div></div>}
-    <div className="profile-tabs" role="tablist"><button className={tab === "listings" ? "active" : ""} onClick={() => setTab("listings")}>需要 / 提供 <b>{listings.length}</b></button><button className={tab === "transactions" ? "active" : ""} onClick={() => setTab("transactions")}>互助记录 <b>{transactions.length}</b></button><button className={tab === "cards" ? "active" : ""} onClick={() => setTab("cards")}>好人好事 <b>{cards.length}</b></button></div>
+    <div className="profile-tabs" role="tablist"><button className={tab === "listings" ? "active" : ""} onClick={() => setTab("listings")}>需要 / 提供 <b>{listings.length}</b></button><button className={tab === "transactions" ? "active" : ""} onClick={() => setTab("transactions")}>互助记录 <b>{viewerProfile && viewerProfile !== "error" && viewerProfile.stats ? viewerProfile.stats.posted_records : transactions.length}</b></button><button className={tab === "cards" ? "active" : ""} onClick={() => setTab("cards")}>好人好事 <b>{cards.length}</b></button></div>
 
     {tab === "cards" && <div className="archive-list card-archive">{cards.map((card) => { const from = memberById(card.fromMemberId); const circle = circleById(card.circleId); return <article key={card.id}><header><Character member={from} small/><span><b>{from?.name} 记录了 {member.name} 的好事</b><small>{[card.date, circle?.name].filter(Boolean).join(" · ")}</small></span><Pill color="coral">好人好事</Pill></header><p>“{card.story}”</p>{isSelf && <div className="listing-actions"><button onClick={() => onShareItem("card", card.id)}>分享这件好人好事 ↗</button></div>}</article>; })}{cards.length === 0 && <div className="empty-archive">还没有好人好事</div>}</div>}
 
-    {tab === "listings" && <div className="archive-list listing-archive">{listings.map((listing) => <article key={listing.id} className={listing.type === "need" ? "archive-need" : "archive-offer"}><header><Pill color={listing.type === "need" ? "pink" : "green"}>{listing.type === "need" ? "我想要" : "我可以给"}</Pill><div className="listing-status-control"><span className={`status status-${listing.status}`}>{statusLabel[listing.status]}</span>{isSelf && listing.status !== "closed" && <button className="listing-status-toggle" aria-label={listing.status === "active" ? "暂停展示" : "恢复展示"} title={listing.status === "active" ? "暂停展示" : "恢复展示"} onClick={() => changeListing(listing.id, listing.status === "active" ? "paused" : "active")}>{listing.status === "active" ? "⏸" : "▶"}</button>}</div></header><p className="archive-description">{listing.detail || listing.title}</p><dl>{listing.reference && <div><dt>{listing.type === "need" ? "愿意给出" : "希望收到"}</dt><dd>{listing.reference}</dd></div>}<div><dt>范围</dt><dd>{listing.visibility === "cross-circle" ? "跨圈公开" : listing.circleIds.map((id) => circleById(id)?.name).filter(Boolean).join("、")}</dd></div></dl>{isSelf && <div className="listing-actions"><button type="button" onClick={() => openListingDialog(listing)}>编辑内容</button>{listing.status === "active" && <button onClick={() => onShareItem("listing", listing.id)}>分享这条内容 ↗</button>}</div>}</article>)}{listings.length === 0 && <div className="empty-archive">还没有发布中的需要或提供。</div>}</div>}
+    {tab === "listings" && <div className="archive-list listing-archive">{listings.map((listing) => <article key={listing.id} className={listing.type === "need" ? "archive-need" : "archive-offer"}><header><Pill color={listing.type === "need" ? "pink" : "green"}>{listing.type === "need" ? "我想要" : "我可以给"}</Pill><div className="listing-status-control"><span className={`status status-${listing.status}`}>{statusLabel[listing.status]}</span>{isSelf && listing.status !== "closed" && <button className="listing-status-toggle" aria-label={listing.status === "active" ? "暂停展示" : "恢复展示"} title={listing.status === "active" ? "暂停展示" : "恢复展示"} onClick={() => changeListing(listing.id, listing.status === "active" ? "paused" : "active")}>{listing.status === "active" ? "⏸" : "▶"}</button>}</div></header><p className="archive-description">{listing.detail || listing.title}</p><dl>{listing.reference && <div><dt>{listing.type === "need" ? "愿意给出" : "希望收到"}</dt><dd>{listing.reference}</dd></div>}<div><dt>范围</dt><dd>{listing.visibility === "cross-circle" ? "跨圈公开" : listing.circleIds.map((id) => circleById(id)?.name).filter(Boolean).join("、")}</dd></div></dl>{isSelf && listing.status !== "closed" && <div className="listing-actions"><button type="button" onClick={() => openListingDialog(listing)}>编辑内容</button><button disabled={listingBusy} onClick={() => setListingToClose(listing)}>结束发布</button>{listing.status === "active" && <button onClick={() => onShareItem("listing", listing.id)}>分享这条内容 ↗</button>}</div>}</article>)}{listings.length === 0 && <div className="empty-archive">还没有发布中的需要或提供。</div>}</div>}
 
     {tab === "transactions" && <div className="archive-list transaction-archive">{transactions.map((transaction) => {
       const provider = memberById(transaction.providerId);
       const receiver = memberById(transaction.receiverId);
       const circle = circleById(transaction.circleId) ?? EMPTY_CIRCLE;
-      const canAmend = isSelf && circle.settings.allowRejectCorrect && (transaction.status === "confirmed" || transaction.status === "corrected");
-      const proposal = isSelf ? transaction.pendingCorrection : null;
-      const mine = proposal?.proposedById === activeDb.currentMemberId;
+      const posted = transaction.status === "confirmed" || transaction.status === "corrected";
+      const revision = isSelf ? transaction.pendingRevision : null;
+      const mine = revision?.proposedById === activeDb.currentMemberId;
+      const canPropose = isSelf && posted && !revision && !transaction.redacted;
       const focused = transaction.id === focusRecordId;
+      const log = history[transaction.id];
       return <article key={transaction.id} className={focused ? "focused" : undefined} ref={focused ? focusedRef : undefined}>
         <header><div>
           <Pill color={transaction.visibility === "private" ? "blue" : "yellow"}>{transaction.visibility === "private" ? "仅当事人" : transaction.visibility === "mystery" ? "神秘记录" : "圈内公开"}</Pill>
           <span className={`status status-${transaction.status}`}>{transactionStatus[transaction.status]}</span>
           {isSelf && transaction.status === "pending" && transaction.createdById === activeDb.currentMemberId && <span className="status status-pending">等对方确认</span>}
+          {canPropose && <button onClick={() => openRevisionDialog("edit", transaction, circle.currency)}>申请修改</button>}
+          {canPropose && <button onClick={() => openRevisionDialog("revoke", transaction, circle.currency)}>申请撤销</button>}
         </div><strong>{transaction.amount} {circle.currency}</strong></header>
-        <p className="archive-description">{transaction.story || transaction.title}</p>
-        <div className="record-actions">
-          {isSelf && transaction.status === "pending" && transaction.createdById !== activeDb.currentMemberId && <button onClick={() => confirmTransaction(transaction.id)}>确认入账</button>}
-          {canAmend && !proposal && <button onClick={() => openCorrectionDialog(transaction, circle.currency)}>修改记录</button>}
-          {isSelf && !transaction.pendingCorrection && (transaction.status === "confirmed" || transaction.status === "corrected") && <button onClick={() => onShareItem("transaction", transaction.id)}>分享 ↗</button>}
-        </div>
-        {proposal && <div className="correction-note">
-          <b>{mine ? "你提出了修改" : "对方提出了修改"}</b>
-          <span>{[proposal.amount !== transaction.amount ? `金额：${transaction.amount} → ${proposal.amount} ${circle.currency}` : "", proposal.title && proposal.title !== transaction.title ? `标题：${proposal.title}` : "", proposal.story && proposal.story !== transaction.story ? `内容：${proposal.story}` : ""].filter(Boolean).join(" · ")}</span>
-          <span>{mine ? "对方同意后生效。" : "同意后才会更新记录；不接受则保持原样。"}</span>
+        <p className="archive-description">{transaction.story || transaction.title}</p><div className="record-actions">{isSelf && !revision && transaction.visibility === "public" && posted && <button onClick={() => onShareItem("transaction", transaction.id)}>分享 ↗</button>}</div>
+        {revision && <div className="correction-note">
+          <b>{revision.kind === "revoke"
+            ? (mine ? "等待对方同意撤销" : `${memberById(revision.proposedById)?.name ?? "对方"}申请撤销这笔记录`)
+            : (mine ? "等待对方同意修改" : `${memberById(revision.proposedById)?.name ?? "对方"}申请修改这笔记录`)}</b>
+          {revision.kind === "edit" && <ul className="revision-changes">{revisionLines(revision, circle.currency).map((line) => <li key={line}>{line}</li>)}</ul>}
+          <span>{revision.kind === "revoke"
+            ? (mine ? "对方同意后，这笔记录按当前额度整笔退回；拒绝或你撤回，记录和额度都不变。" : "同意后按当前额度整笔退回双方；拒绝的话记录保持原样。")
+            : (mine ? "对方同意后才会生效，在那之前原记录和额度都不变。" : "同意后立即生效并重算双方额度；拒绝的话记录保持原样。")}</span>
           <div>{mine
-            ? <button onClick={() => resolveCorrection(transaction.id, "withdraw")}>撤回修改申请</button>
-            : <><button onClick={() => resolveCorrection(transaction.id, "accept")}>同意修改</button><button onClick={() => resolveCorrection(transaction.id, "decline")}>保留原记录</button></>}</div>
+            ? <button onClick={() => resolveRevision(transaction, revision, "withdraw")}>撤回申请</button>
+            : <><button onClick={() => resolveRevision(transaction, revision, "accept")}>同意</button><button onClick={() => resolveRevision(transaction, revision, "decline")}>拒绝</button></>}</div>
         </div>}
+        {isSelf && !transaction.redacted && <button className="history-toggle" onClick={() => toggleHistory(transaction.id)}>{log && log !== "error" ? "收起修改记录" : "修改记录"}</button>}
+        {log === "loading" && <p className="soft-note">正在读取…</p>}
+        {log === "error" && <p className="soft-note">修改记录没能读取，可以再试一次。</p>}
+        {Array.isArray(log) && <ol className="revision-history">{log.length === 0 ? <li>还没有修改过</li> : log.map((item) => <li key={item.id}><b>{memberById(item.proposedById)?.name ?? "成员"}{item.kind === "revoke" ? "申请撤销" : "申请修改"} · {revisionStatus[item.status]}</b>{item.kind === "edit" && <span>{revisionLines(item, circle.currency).join("；")}</span>}<small>{formatTime(item.createdAt)}{item.resolvedAt ? ` → ${formatTime(item.resolvedAt)}` : ""}</small></li>)}</ol>}
         <footer><span>{provider?.name} → {receiver?.name}</span><span>记录于 {transaction.recordedAt} · {circle.name}</span></footer>
       </article>;
     })}{transactions.length === 0 && <div className="empty-archive">没有可见记录</div>}</div>}
 
     {accounts.length > 0 && <><SectionTitle title={isSelf ? "我在各圈" : "你们的共同圈子"}/><div className="account-strip">{accounts.map((account) => { const circle = circleById(account.circleId) ?? EMPTY_CIRCLE; return <button key={account.circleId} type="button" className={scopedCircleId === account.circleId ? "selected" : ""} aria-current={scopedCircleId === account.circleId ? "true" : undefined} aria-label={`查看${circle.name}的档案内容`} onClick={() => onSelectCircle(account.circleId)}><span>{circle.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance} {circle.currency}</b><small>给出 {account.given} · 收到 {account.received}</small></button>; })}</div></>}
-    {!isSelf && <><SectionTitle title="TA 加入的其他圈子"/><p className="profile-scope-note">你还没有加入这些圈子。可以先看介绍，再决定是否申请。</p><div className="open-circle-list">{otherCircles.length > 0 ? otherCircles.map((circle) => <button key={circle.id} onClick={() => onPreview(circle.id)}><CircleGlyph icon={circle.short} seed={circle.id} size="small"/><span><b>{circle.name}</b><small>{circle.tagline}</small></span><strong>看介绍 →</strong></button>) : <div className="empty-archive">目前没有其他可发现的圈子</div>}</div></>}
+    {!isSelf && <><SectionTitle title="TA 加入的其他圈子"/>{viewerProfile === null ? <p className="soft-note">正在读取…</p> : viewerProfile === "error" ? <p className="soft-note">未能读取其他圈子，请刷新重试。</p> : viewerProfile.other_discoverable_circles.length === 0 ? <div className="empty-archive">目前没有其他可发现的圈子</div> : <div className="open-circle-list">{viewerProfile.other_discoverable_circles.map((circle) => <button key={circle.id} onClick={() => onPreview(circle.id)}><CircleGlyph icon={circle.icon || "n1"} seed={circle.id} size="small"/><span><b>{circle.name}</b><small>{circle.description}</small></span><strong>看介绍 →</strong></button>)}</div>}</>}
     {!isSelf && contact && !member.wechat && <p className="soft-note">TA 还没有填写联系方式，可以先通过账号联系。</p>}
   </section>
+  {listingToClose && <Modal onClose={() => { if (!listingBusy) setListingToClose(null); }} label="结束发布">
+    <SheetHeading title="结束这条发布？" description="结束后不能恢复或编辑，公开分享链接也会失效。" color="coral"/>
+    <div className="sheet-actions"><button className="secondary-button" disabled={listingBusy} onClick={() => setListingToClose(null)}>取消</button><button className="primary-button" disabled={listingBusy} onClick={() => changeListing(listingToClose.id, "closed")}>{listingBusy ? "正在结束…" : "确认结束"}</button></div>
+  </Modal>}
   {listingDialog && <Modal onClose={() => { if (!listingBusy) setListingDialog(null); }} label="编辑需要或提供">
     <SheetHeading eyebrow={listingDialog.type === "need" ? "我想要" : "我可以给"} title="编辑内容" description="修改自己发布的内容，保存后更新展示。" color={listingDialog.type === "need" ? "pink" : "green"}/>
     <div className="manual-form">
@@ -1353,33 +1442,65 @@ function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, otherCi
     {listingError && <p className="account-error" role="alert">{listingError}</p>}
     <div className="sheet-actions"><button className="secondary-button" disabled={listingBusy} onClick={() => setListingDialog(null)}>取消</button><button className="primary-button" disabled={listingBusy} onClick={saveListingDialog}>{listingBusy ? "正在保存…" : "保存修改"}</button></div>
   </Modal>}
-  {transactionDialog && <Modal onClose={() => { if (!transactionBusy) setTransactionDialog(null); }} label="修改互助记录">
-    <SheetHeading eyebrow="双方共同修改" title="修改这笔记录" description="填写想修改的内容。对方同意后才会生效。" color="blue"/>
-    <div className="manual-form"><label><span>互助标题</span><input value={correctionDraft.title} onChange={(event) => setCorrectionDraft((draft) => ({ ...draft, title: event.target.value }))}/></label><label><span>事情经过</span><textarea rows={4} value={correctionDraft.story} onChange={(event) => setCorrectionDraft((draft) => ({ ...draft, story: event.target.value }))}/></label><label><span>社区货币数量（{transactionDialog.currency}）</span><input aria-label={`社区货币数量 ${transactionDialog.currency}`} type="number" min="1" step="1" inputMode="numeric" value={correctionDraft.amount} onChange={(event) => setCorrectionDraft((draft) => ({ ...draft, amount: event.target.value }))}/></label></div>
-    <div className="pending-action"><button type="button" disabled>申请撤销 · 暂未开放</button><small>撤销需对方同意，原记录与修改时间会保留。</small></div>
+  {transactionDialog && <Modal onClose={() => { if (!transactionBusy) setTransactionDialog(null); }} label={transactionDialog.kind === "edit" ? "申请修改记录" : "申请撤销记录"}>
+    <SheetHeading eyebrow={transactionDialog.kind === "edit" ? "申请修改" : "申请撤销"} title={transactionDialog.kind === "edit" ? "要改成什么样？" : "申请撤销这笔记录？"} description={transactionDialog.transaction.title} color={transactionDialog.kind === "edit" ? "blue" : "coral"}/>
+    {transactionDialog.kind === "edit"
+      ? <div className="manual-form">
+          <label><span>社区货币数量</span><input aria-label="社区货币数量" type="number" min="1" step="1" inputMode="numeric" value={draftAmount} onChange={(event) => setDraftAmount(event.target.value)}/><small>当前是 {transactionDialog.transaction.amount} {transactionDialog.currency}。</small></label>
+          <label><span>发生了什么</span><textarea aria-label="发生了什么" value={draftStory} onChange={(event) => setDraftStory(event.target.value)} rows={5}/></label>
+          <label><span>可见范围</span><select aria-label="可见范围" value={draftVisibility} onChange={(event) => setDraftVisibility(event.target.value as Transaction["visibility"])}>
+            <option value="public">圈内公开</option><option value="mystery">神秘记录（圈内只看到额度）</option>
+            {transactionDialog.transaction.visibility === "private" && <option value="private">仅双方可见</option>}
+          </select>{draftVisibility === "public" && transactionDialog.transaction.visibility !== "public" && <small>公开后，圈内成员会看到上面这段描述和双方名字。</small>}</label>
+          <small className="soft-note">可以只改其中一项。对方同意前，原记录和双方额度都不变。</small>
+        </div>
+      : <div className="transaction-warning"><b>{transactionDialog.transaction.amount} {transactionDialog.currency}</b><p>对方同意后，这笔记录按当前额度整笔退回双方，并保留“已撤销”的记录；对方拒绝或你撤回，什么都不会变。</p></div>}
     {transactionError && <p className="account-error" role="alert">{transactionError}</p>}
-    <div className="sheet-actions"><button className="secondary-button" disabled={transactionBusy} onClick={() => setTransactionDialog(null)}>取消</button><button className="primary-button" disabled={transactionBusy} onClick={submitTransactionDialog}>{transactionBusy ? "正在发送…" : "请对方同意修改"}</button></div>
+    <div className="sheet-actions"><button className="secondary-button" disabled={transactionBusy} onClick={() => setTransactionDialog(null)}>取消</button><button className={`primary-button ${transactionDialog.kind === "revoke" ? "danger-button" : ""}`} disabled={transactionBusy} onClick={submitTransactionDialog}>{transactionBusy ? "正在提交…" : transactionDialog.kind === "edit" ? "发送修改申请" : "发送撤销申请"}</button></div>
   </Modal>}
   </>;
 }
 
-function CirclePreviewSheet({ circle, onClose, onJoin }: { circle: DiscoverableCircle; onClose: () => void; onJoin: () => Promise<void> }) {
+
+type CirclePreview = {
+  circle: { id: string; name: string; icon: string | null; color: string | null; description: string | null; currency: string | null; joining: "direct" | "approval"; discoverability: string; member_count: number; rules: string[]; references: { name: string; value: string; note?: string }[] };
+  membership_status: "active" | "pending" | null;
+  can_apply: boolean;
+};
+function CirclePreviewSheet({ circleId, onClose, onJoin }: { circleId: string; onClose: () => void; onJoin: (circle: DiscoverableCircle) => Promise<void> }) {
+  const [data, setData] = useState<CirclePreview | "error" | null>(null);
   const [busy, setBusy] = useState(false);
-  return <Modal onClose={onClose} label={`${circle.name}的圈子介绍`}>
-    <SheetHeading eyebrow="加入前先了解" title={circle.name} description={circle.tagline || undefined} meta={`${circle.members} 位成员 · ${circle.joining === "approval" ? "申请需圈主审批" : "可直接加入"}`} color={circle.color} visual={<CircleGlyph icon={circle.short} seed={circle.id} size="small"/>}/>
-    <div className="circle-preview-copy"><h3>圈子介绍</h3><p>{circle.description || circle.tagline || "圈主还没有填写介绍。"}</p>{circle.rules && circle.rules.length > 0 && <><h3>圈子约定</h3><ul>{circle.rules.map((rule) => <li key={rule}>{rule}</li>)}</ul></>}</div>
-    <p className="soft-note">加入后才可查看圈内成员档案、互助记录与社区货币余额。</p>
-    <div className="sheet-actions sheet-actions-single"><button className="primary-button" disabled={busy || circle.pending} onClick={async () => { setBusy(true); try { await onJoin(); } finally { setBusy(false); } }}>{busy ? "正在提交…" : circle.pending ? "已申请，等待审批" : circle.joining === "approval" ? "申请加入" : "加入圈子"}</button></div>
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/circles/${encodeURIComponent(circleId)}/preview`, { cache: "no-store" })
+      .then(async (response) => { const result = await response.json().catch(() => ({})) as CirclePreview; if (alive) setData(response.ok && result.circle ? result : "error"); })
+      .catch(() => { if (alive) setData("error"); });
+    return () => { alive = false; };
+  }, [circleId]);
+  if (data === null) return <Modal onClose={onClose} label="圈子介绍"><SheetHeading eyebrow="圈子介绍" title="正在读取…" color="cream"/></Modal>;
+  if (data === "error") return <Modal onClose={onClose} label="圈子介绍"><SheetHeading eyebrow="圈子介绍" title="打不开这个圈子" description="它可能只接受邀请，或者已经不存在。" color="cream"/></Modal>;
+  const c = data.circle;
+  const discoverable: DiscoverableCircle = { id: c.id, name: c.name, short: c.icon || c.name.slice(0, 1), color: "green", currency: c.currency || "积分", members: c.member_count, tagline: c.description || "", joining: c.joining, discoverability: c.discoverability === "public" ? "public" : "invite_only", pending: data.membership_status === "pending" };
+  async function act() { try { setBusy(true); await onJoin(discoverable); } finally { setBusy(false); } }
+  return <Modal onClose={onClose} label={`${c.name}介绍`} wide>
+    <SheetHeading eyebrow="圈子介绍" title={c.name} description={c.description || undefined} meta={`${c.currency || "积分"} · ${c.member_count} 位成员 · ${c.joining === "approval" ? "加入需审批" : "可直接加入"}`} color="green" visual={<CircleGlyph icon={discoverable.short} seed={c.id} size="small"/>}/>
+    {c.references.length > 0 && <><SectionTitle title="协商参考"/><div className="reference-detail-grid">{c.references.map((item) => <div key={item.name}><span>{item.name}</span><strong>{item.value}</strong><p>{item.note}</p></div>)}</div></>}
+    {c.rules.length > 0 && <><SectionTitle title="圈子约定"/><section className="rule-list">{c.rules.map((rule, index) => <div key={rule}><b>{String(index + 1).padStart(2, "0")}</b><p>{rule}</p></div>)}</section></>}
+    <p className="soft-note">记下的互助立即入账，修改或撤销需要双方同意。{c.joining === "approval" ? "圈主同意前，你看不到圈内成员和记录。" : ""}</p>
+    <div className="sheet-actions sheet-actions-single">
+      {data.membership_status === "active" ? <button className="secondary-button" onClick={onClose}>你已经在这个圈子里</button>
+        : data.membership_status === "pending" ? <button className="secondary-button" disabled={busy} onClick={act}>{busy ? "正在撤回…" : "撤回申请"}</button>
+        : data.can_apply ? <button className="primary-button" disabled={busy} onClick={act}>{busy ? "正在提交…" : c.joining === "approval" ? "申请加入" : "加入圈子"}</button>
+        : <button className="secondary-button" disabled>这个圈子只接受邀请</button>}
+    </div>
   </Modal>;
 }
 
-// The circle's public agreement page: what it is, how to get in, what the
-// negotiation references are, and how its records work.
 function RulesSheet({ circle, onClose }: { circle: Circle; onClose: () => void }) {
   const { references, rules, allowNegativeBalance, requireConfirmation, allowRejectCorrect } = circle.settings;
   const circleRules = [
     requireConfirmation ? "完成互助后，需对方确认才入账。" : "完成互助后，一方记录就能入账。",
-    allowRejectCorrect ? "修改记录需对方同意。" : "这条圈子暂不支持修改记录。",
+    allowRejectCorrect ? "修改或撤销记录需对方同意。" : "这条圈子暂不支持修改记录。",
     allowNegativeBalance ? "可以先接受帮助，余额可以为负。" : "接受帮助前需要有足够余额。",
     ...rules.filter((rule) => rule.trim() !== "允许负余额"),
   ];
@@ -1432,51 +1553,90 @@ function MembersSheet({ circle, requests, isOwner, onProfile, onInvite, onClose,
   </>;
 }
 
-function InviteSheet({ circle, isOwner, onClose, onNotice }: { circle: Circle; isOwner: boolean; onClose: () => void; onNotice: (message: string) => void }) {
-  const [channel, setChannel] = useState<"regular" | "owner-direct">("regular");
-  const [inviteUrl, setInviteUrl] = useState("");
+type InviteLink = { id: string; url: string; type: "regular" | "owner_direct"; expiresAt: string };
+type ManagedInvite = { id: string; type: "regular" | "owner_direct"; status: string; expires_at: string; used_count: number; created_by_id: string };
+
+function inviteExpiry(iso: string): string {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? "" : `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function InviteSheet({ circle, onClose, onNotice }: { circle: Circle; onClose: () => void; onNotice: (message: string) => void }) {
+  const isOwner = circle.ownerId === activeDb.currentMemberId;
+  const [kind, setKind] = useState<"regular" | "owner_direct">("regular");
+  const [invite, setInvite] = useState<InviteLink | null>(null);
   const [creating, setCreating] = useState(false);
+  const [managed, setManaged] = useState<ManagedInvite[] | "error" | null>(null);
   const posterRef = useRef<HTMLDivElement>(null);
-  async function createInvite() {
+
+  async function loadManaged() {
+    try {
+      const response = await fetch(`/api/invitations?circleId=${encodeURIComponent(circle.id)}`, { cache: "no-store" });
+      const result = await response.json() as { invitations?: ManagedInvite[] };
+      if (!response.ok || !result.invitations) throw new Error();
+      setManaged(result.invitations);
+    } catch { setManaged("error"); }
+  }
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/invitations?circleId=${encodeURIComponent(circle.id)}`, { cache: "no-store" })
+      .then(async (response) => { const result = await response.json().catch(() => ({})) as { invitations?: ManagedInvite[] }; if (alive) setManaged(response.ok && result.invitations ? result.invitations : "error"); })
+      .catch(() => { if (alive) setManaged("error"); });
+    return () => { alive = false; };
+  }, [circle.id]);
+
+  // A regular link lasts 7 days and works for any number of people, so one is
+  // reused until the person asks for a fresh one or switches type.
+  async function ensureInvite(): Promise<InviteLink | null> {
+    if (invite && invite.type === kind) return invite;
     try {
       setCreating(true);
-      const response = await fetch("/api/invitations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ circleId: circle.id }) });
-      const result = await response.json() as { url?: string; error?: string };
-      if (!response.ok || !result.url) throw new Error(result.error || "邀请创建失败");
-      setInviteUrl(result.url);
-    } catch (error) { onNotice(error instanceof Error ? error.message : "邀请创建失败"); }
+      const response = await fetch("/api/invitations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ circleId: circle.id, type: kind }) });
+      const result = await response.json() as { id?: string; url?: string; type?: InviteLink["type"]; expiresAt?: string; error?: string };
+      if (!response.ok || !result.url || !result.id) throw new Error(result.error || "邀请创建失败");
+      const created = { id: result.id, url: result.url, type: result.type || kind, expiresAt: result.expiresAt || "" };
+      setInvite(created);
+      void loadManaged();
+      return created;
+    } catch (error) { onNotice(error instanceof Error ? error.message : "邀请创建失败"); return null; }
     finally { setCreating(false); }
   }
-  async function copyInvite() {
-    if (!inviteUrl) return;
-    try { await navigator.clipboard.writeText(inviteUrl); onNotice(isLocalUrl(inviteUrl) ? "已复制本地测试链接，只能在这台电脑打开" : "邀请链接已复制"); }
-    catch { onNotice("复制失败，请手动复制链接"); }
+
+  async function copyInvite() { const link = await ensureInvite(); if (!link) return; try { await navigator.clipboard.writeText(link.url); onNotice(isLocalUrl(link.url) ? "已复制本地测试链接，只能在这台电脑打开" : link.type === "owner_direct" ? "专属邀请已复制，持链接可直接加入" : "邀请链接已复制，7 天内可供多人使用"); } catch { onNotice("复制失败，请手动复制链接"); } }
+  async function saveImage() { if (!invite) { onNotice("请先生成邀请图"); return; } try { await savePosterImage(posterRef.current, `${circle.name}-邀请`); onNotice("邀请图片已保存"); } catch { onNotice("保存失败，请稍后再试"); } }
+  async function revoke(id: string) {
+    const response = await fetch(`/api/invitations/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const result = await response.json().catch(() => ({})) as { error?: string };
+    if (!response.ok) { onNotice(result.error || "撤销失败"); return; }
+    if (invite?.id === id) setInvite(null);
+    onNotice("邀请已撤销，这个链接不能再用了");
+    void loadManaged();
   }
-  async function saveImage() {
-    if (!inviteUrl) return;
-    try { await savePosterImage(posterRef.current, `${circle.name}-邀请`); onNotice("邀请图片已保存"); }
-    catch { onNotice("保存失败，请稍后再试"); }
-  }
+
+  const current = invite && invite.type === kind ? invite : null;
+  const label = kind === "owner_direct" ? "圈主专属 · 持链接可直接加入，无需审批" : `普通邀请 · 7 天内可供多人使用${circle.joining === "approval" ? " · 加入需审批" : ""}`;
+
   return <Modal onClose={onClose} label={`邀请加入${circle.name}`}>
-    <SheetHeading eyebrow={channel === "owner-direct" ? "圈主专属" : "邀请成员"} title={channel === "owner-direct" ? "无需审批的邀请通道" : `邀请加入 ${circle.name}`} color={circle.color}/>
-    {channel === "owner-direct" ? <>
-      <button className="text-link" onClick={() => setChannel("regular")}>← 返回普通邀请</button>
-      <div className="create-rule-note"><b>持专属邀请码可直接加入</b><p>这个通道只给圈主使用，不受圈子的普通加入设置影响。需要后端签发并验证专属邀请码；接入前不能生成或分享。</p><button type="button" disabled>生成专属邀请 · 待后端接入</button></div>
-    </> : <>
-      <div ref={posterRef} className={`mini-invite-poster hero-${circle.color}${inviteUrl ? " has-code" : ""}`}><CircleGlyph icon={circle.short} seed={circle.id} size="regular"/><span>来自圈内伙伴的邀请</span><h3>来 {circle.name}<br/>看看我们还能怎样互相帮助</h3><p>{circle.joining === "approval" ? "加入需要圈主审批" : "加入无需审批"}</p>{inviteUrl && <QrCode value={inviteUrl} className="mini-code"/>}</div>
-      {inviteUrl ? <div className="invite-url-box"><span>图片二维码与下方链接相同</span><b>{inviteUrl}</b></div> : <button className="primary-button invite-generate" disabled={creating} onClick={createInvite}>{creating ? "正在生成…" : "生成邀请"}</button>}
-      <div className="sheet-actions invite-sheet-actions"><button className="secondary-button" disabled={!inviteUrl || creating} onClick={saveImage}>保存图片</button><button className="primary-button" disabled={!inviteUrl || creating} onClick={copyInvite}>复制链接</button></div>
-      <p className="invite-limit-note">邀请目标：7 天有效、使用人数不限。当前服务端仍是单次使用链接；发给多人前需等待后端更新。{circle.joining === "approval" ? "加入申请需圈主审批。" : "此圈设置为无需审批。"}</p>
-      {isLocalUrl(inviteUrl) && <p className="local-link-warning">本地测试地址，仅这台电脑可打开。</p>}
-      {isOwner && <button className="text-link invite-owner-link" onClick={() => setChannel("owner-direct")}>无需审批的邀请通道 →</button>}
-    </>}
+    <SheetHeading eyebrow={kind === "owner_direct" ? "圈主专属邀请" : "圈子邀请"} title={`邀请加入 ${circle.name}`} color={circle.color}/>
+    {kind === "owner_direct" && <button className="text-link" disabled={creating} onClick={() => setKind("regular")}>← 返回普通邀请</button>}
+    <div ref={posterRef} className={`mini-invite-poster hero-${circle.color}${current ? " has-code" : ""}`}><CircleGlyph icon={circle.short} seed={circle.id} size="regular"/><span>{kind === "owner_direct" ? "圈主的专属邀请" : "来自圈内伙伴的邀请"}</span><h3>来 {circle.name}<br/>看看我们还能怎样互相帮助</h3><p>{kind === "owner_direct" ? "持链接可直接加入，无需审批" : circle.joining === "approval" ? "加入需要圈主审批" : "加入无需审批"}</p>{current && <QrCode value={current.url} className="mini-code"/>}</div>
+    {current ? <div className="invite-url-box"><span>图片二维码与下方链接相同</span><b>{current.url}</b></div> : <button className="primary-button invite-generate" disabled={creating} onClick={() => void ensureInvite()}>{creating ? "正在生成…" : kind === "owner_direct" ? "生成专属邀请" : "生成邀请"}</button>}
+    <p className="invite-limit-note">{label}{current?.expiresAt ? ` · 有效至 ${inviteExpiry(current.expiresAt)}` : ""}</p>
+    {current && isLocalUrl(current.url) && <p className="local-link-warning">本地测试地址，仅这台电脑可打开。</p>}
+    <div className="sheet-actions invite-sheet-actions"><button className="secondary-button" disabled={creating || !current} onClick={saveImage}>保存图片</button><button className="primary-button" disabled={creating || !current} onClick={copyInvite}>复制链接</button></div>
+    {isOwner && kind === "regular" && <button className="text-link invite-owner-link" disabled={creating} onClick={() => setKind("owner_direct")}>无需审批的邀请通道 →</button>}
+    <SectionTitle title={isOwner ? "圈内有效邀请" : "我发出的有效邀请"}/>
+    {managed === null ? <p className="soft-note">正在读取…</p>
+      : managed === "error" ? <p className="soft-note">邀请列表没能读取。</p>
+      : managed.length === 0 ? <p className="soft-note">现在没有有效邀请。</p>
+      : <ul className="invite-manage">{managed.map((item) => <li key={item.id}><span><b>{item.type === "owner_direct" ? "专属邀请" : "普通邀请"}</b><small>有效至 {inviteExpiry(item.expires_at)} · 已有 {item.used_count} 人使用</small></span><button onClick={() => void revoke(item.id)}>撤销</button></li>)}</ul>}
   </Modal>;
 }
 
 // Four-step create wizard. Every field maps to something loop-backend stores:
 // Circle identity plus the references and rules kept in `circle.settings`.
 type CreateCircleInput = {
-  name: string; short: string; currency: string; tagline: string;
+  name: string; short: string; currency: string; tagline: string; joining: string; discoverability: "public" | "invite_only";
   references: { name: string; value: string; note?: string }[];
   rules: string[];
 };
@@ -1489,6 +1649,10 @@ function CreateCircleView({ onExit, onDone }: { onExit: () => void; onDone: (inp
   const [short, setShort] = useState<CircleIconKey>("n1");
   const [currency, setCurrency] = useState("");
   const [tagline, setTagline] = useState("");
+  // New circles start with owner approval and stay out of discovery until the
+  // owner says otherwise; the bookkeeping rules are the same for every circle.
+  const [joining, setJoining] = useState("approval");
+  const [discoverability, setDiscoverability] = useState<"public" | "invite_only">("invite_only");
   const [referenceName, setReferenceName] = useState("");
   const [referenceValue, setReferenceValue] = useState("");
   const [rules, setRules] = useState("");
@@ -1517,11 +1681,11 @@ function CreateCircleView({ onExit, onDone }: { onExit: () => void; onDone: (inp
 
       {step === 2 && <><div className="create-heading"><span>STEP 02 · MUTUAL CREDIT</span><h2>互助设置</h2></div><div className="mechanism-card"><div className="mechanism-icon">＋<br/>−</div><div><Pill color="yellow">互助账户</Pill><h3>成员共同记账</h3></div><b>已选择</b></div><div className="reference-editor"><div><span>互助参考</span><input value={referenceName} placeholder="一小时协作" onChange={(event) => setReferenceName(event.target.value)}/></div><div><span>大约多少社区货币</span><input value={referenceValue} placeholder={`约 5 ${unit}`} onChange={(event) => setReferenceValue(event.target.value)}/></div></div><div className="create-rule-note"><b>默认圈子规则</b><p>一方记录即入账；修改需对方同意；可以先接受帮助。</p></div></>}
 
-      {step === 3 && <><div className="create-heading"><span>STEP 03 · GOVERNANCE</span><h2>成员与边界</h2></div><div className="create-rule-note"><b>新成员申请加入</b><p>无论从发现页还是邀请链接进入，都需要圈主审批。</p></div><label className="typing-box"><span>圈子约定（一行一条，最多 10 条）</span><textarea rows={5} value={rules} onChange={(event) => setRules(event.target.value)} placeholder={"可以开口，也可以拒绝\n敏感互助可以不记录\n成员可以随时暂停或退出"}/><small className={ruleError ? "field-count over" : "field-count"}>{ruleList.length} / 10</small></label></>}
+      {step === 3 && <><div className="create-heading"><span>STEP 03 · GOVERNANCE</span><h2>成员与边界</h2></div><span className="form-label">新成员怎么加入</span><div className="create-choice-row two"><button className={joining === "approval" ? "active" : ""} onClick={() => setJoining("approval")}><b>管理员审批</b></button><button className={joining === "direct" ? "active" : ""} onClick={() => setJoining("direct")}><b>受邀直接加入</b></button></div><span className="form-label">谁能找到这个圈子</span><div className="create-choice-row two"><button className={discoverability === "invite_only" ? "active" : ""} onClick={() => setDiscoverability("invite_only")}><b>仅凭邀请访问</b></button><button className={discoverability === "public" ? "active" : ""} onClick={() => setDiscoverability("public")}><b>在发现页公开展示</b></button></div><label className="typing-box"><span>圈子约定（一行一条，最多 10 条）</span><textarea rows={5} value={rules} onChange={(event) => setRules(event.target.value)} placeholder={"可以开口，也可以拒绝\n敏感互助可以不记录\n成员可以随时暂停或退出"}/><small className={ruleError ? "field-count over" : "field-count"}>{ruleList.length} / 10</small></label></>}
 
-      {step === 4 && <><div className="create-heading"><span>STEP 04 · REVIEW</span><h2>创建前确认</h2></div><article className="circle-draft-preview"><header><CircleGlyph icon={short} seed={name} size="large"/><div><Pill color="cream">新圈预览</Pill><h2>{name || "未命名圈子"}</h2><p>{tagline || "还没有写一句话介绍"}</p></div></header><div className="draft-summary"><div><span>社区货币</span><b>{currency || "未命名"}</b><small>不兑换人民币</small></div><div><span>加入方式</span><b>圈主审批</b><small>邀请也需审批</small></div><div><span>互助参考</span><b>{referenceName || "暂未设置"}</b><small>{referenceValue}</small></div></div><ul><li>记录已完成的互助，立即入账</li><li>双方可提出修改，需对方同意</li><li>余额可为负，表示曾接受帮助</li>{ruleList.map((rule) => <li key={rule}>{rule}</li>)}</ul><footer><span>可以问，也可以拒绝。</span></footer></article>{error && <div className="review-warning"><b>创建失败</b><p>{error}</p></div>}</>}
+      {step === 4 && <><div className="create-heading"><span>STEP 04 · REVIEW</span><h2>创建前确认</h2></div><article className="circle-draft-preview"><header><CircleGlyph icon={short} seed={name} size="large"/><div><Pill color="cream">新圈预览</Pill><h2>{name || "未命名圈子"}</h2><p>{tagline || "还没有写一句话介绍"}</p></div></header><div className="draft-summary"><div><span>社区货币</span><b>{currency || "未命名"}</b><small>不兑换人民币</small></div><div><span>加入方式</span><b>{joining === "direct" ? "直接加入" : "圈主审批"}</b><small>{discoverability === "public" ? "在发现页公开" : "仅凭邀请"}</small></div><div><span>互助参考</span><b>{referenceName || "暂未设置"}</b><small>{referenceValue}</small></div></div><ul><li>记录已完成的互助，立即入账</li><li>双方可提出修改，需对方同意</li><li>余额可为负，表示曾接受帮助</li>{ruleList.map((rule) => <li key={rule}>{rule}</li>)}</ul><footer><span>可以问，也可以拒绝。</span></footer></article>{error && <div className="review-warning"><b>创建失败</b><p>{error}</p></div>}</>}
 
-      <div className="create-footer">{blocked && <p className="step-hint">{stepError}</p>}<button className="secondary-button" onClick={() => step === 1 ? onExit() : setStep(step - 1)}>{step === 1 ? "取消" : "← 上一步"}</button>{step < 4 ? <button className="primary-button" disabled={blocked} onClick={() => setStep(step + 1)}>继续：{steps[step]} →</button> : <button className="primary-button" disabled={saving} onClick={async () => { try { setSaving(true); setError(""); await onDone({ name: name.trim(), short, currency: currency.trim(), tagline: tagline.trim(), references: referenceName.trim() ? [{ name: referenceName.trim(), value: referenceValue.trim(), note: "" }] : [], rules: ruleList }); setSaved(true); } catch(error) { setError(error instanceof Error ? error.message : "创建失败"); } finally { setSaving(false); } }}>{saving ? "正在创建…" : "创建圈子"}</button>}</div>
+      <div className="create-footer">{blocked && <p className="step-hint">{stepError}</p>}<button className="secondary-button" onClick={() => step === 1 ? onExit() : setStep(step - 1)}>{step === 1 ? "取消" : "← 上一步"}</button>{step < 4 ? <button className="primary-button" disabled={blocked} onClick={() => setStep(step + 1)}>继续：{steps[step]} →</button> : <button className="primary-button" disabled={saving} onClick={async () => { try { setSaving(true); setError(""); await onDone({ name: name.trim(), short, currency: currency.trim(), tagline: tagline.trim(), joining, discoverability, references: referenceName.trim() ? [{ name: referenceName.trim(), value: referenceValue.trim(), note: "" }] : [], rules: ruleList }); setSaved(true); } catch(error) { setError(error instanceof Error ? error.message : "创建失败"); } finally { setSaving(false); } }}>{saving ? "正在创建…" : "创建圈子"}</button>}</div>
     </div>
   </section>;
 }
@@ -1593,6 +1757,17 @@ function NotificationsSheet({ notifications, onClose, onOpen }: { notifications:
         const outcome = n.text === "accepted" ? `接受了你的更正，${named}按 ${n.amount} ${unit} 入账` : n.text === "declined" ? `谢绝了对${named}的更正，原来记下的数量不变` : `撤回了对${named}的更正提议`;
         return { badge: n.text === "accepted" ? "已更正" : "更正已处理", color: n.text === "accepted" ? "green" : "blue", line: `${who} ${outcome}`, destination: record ? "transactions" : undefined, actionLabel: "查看记录" };
       }
+      case "revision_proposed": {
+        const open = record?.pendingRevision && record.pendingRevision.id === n.revisionId;
+        const what = n.text === "revoke" ? "申请撤销" : "申请修改";
+        if (open) return { badge: n.text === "revoke" ? "申请撤销" : "申请修改", color: "blue", line: `${who}${what}${named}，等你同意`, destination: "transactions", actionLabel: "去处理" };
+        return { badge: "已处理", color: "blue", line: `${who}对${named}的${n.text === "revoke" ? "撤销" : "修改"}申请已经处理`, destination: record ? "transactions" : undefined, actionLabel: "查看记录" };
+      }
+      case "revision_resolved": {
+        const outcome = n.text === "accepted" ? "同意了你的申请" : n.text === "declined" ? "拒绝了你的申请，记录保持原样" : "撤回了申请";
+        const revoked = record?.status === "rejected";
+        return { badge: n.text === "accepted" ? (revoked ? "已撤销" : "已修改") : "已处理", color: n.text === "accepted" ? "green" : "blue", line: `${who}${outcome}${n.text === "accepted" ? (revoked ? `，${named}已撤销，额度已退回` : `，${named}已按新内容生效`) : ""}`, destination: record ? "transactions" : undefined, actionLabel: "查看记录" };
+      }
       case "record_rejected":
         return { badge: "已撤销", color: "blue", line: `${who} 撤销了${named}，双方的社区货币余额已调整`, destination: record ? "transactions" : undefined, actionLabel: "查看记录" };
       case "join_request": {
@@ -1636,6 +1811,8 @@ function CircleSettingsSheet({ circle, onClose, onSaved, onNotice }: { circle: C
   const [currency, setCurrency] = useState(circle.currency);
   const [joining, setJoining] = useState<"approval" | "direct">(circle.joining);
   const [tagline, setTagline] = useState(circle.tagline);
+  // An unknown value is never assumed public.
+  const [discoverability, setDiscoverability] = useState<"public" | "invite_only">(circle.discoverability === "public" ? "public" : "invite_only");
   const [references, setReferences] = useState(circle.settings.references.length ? circle.settings.references : [{ name: "", value: "", note: "" }]);
   const [rules, setRules] = useState(circle.settings.rules.join("\n"));
   const [saving, setSaving] = useState(false);
@@ -1660,7 +1837,7 @@ function CircleSettingsSheet({ circle, onClose, onSaved, onNotice }: { circle: C
       setSaving(true);
       setError("");
       const response = await fetch(`/api/circles/${circle.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({
-        currency: nextCurrency, tagline: tagline.trim(), joining,
+        currency: nextCurrency, tagline: tagline.trim(), joining, discoverability,
         references: references.filter((item) => item.name.trim()).map((item) => ({ name: item.name.trim(), value: item.value.trim(), note: item.note.trim() })),
         rules: nextRules,
       }) });
@@ -1680,7 +1857,13 @@ function CircleSettingsSheet({ circle, onClose, onSaved, onNotice }: { circle: C
       <label><span>一句话介绍</span><textarea value={tagline} rows={2} maxLength={120} onChange={(e) => setTagline(e.target.value)}/></label>
     </div>
     <fieldset className="circle-joining-setting"><legend>新成员如何加入</legend><label><input type="radio" name="joining" checked={joining === "approval"} onChange={() => setJoining("approval")}/><span><b>需要圈主审批</b><small>新成员申请后，由圈主决定是否加入</small></span></label><label><input type="radio" name="joining" checked={joining === "direct"} onChange={() => setJoining("direct")}/><span><b>无需审批，直接加入</b><small>圈子介绍页和普通邀请都可直接加入</small></span></label></fieldset>
-    <div className="create-rule-note"><b>是否在发现页公开展示</b><p>公开圈子可在发现页看介绍并申请；不公开圈子只能通过邀请链接看介绍。这个设置需接入圈子发现权限后才能保存。</p><button type="button" disabled>公开展示范围 · 暂未开放</button></div>
+    <div className="manual-form">
+      <span className="form-label">谁能找到这个圈子</span>
+      <div className="manual-choice"><button className={discoverability === "public" ? "active" : ""} onClick={() => setDiscoverability("public")}>在发现页公开展示</button><button className={discoverability === "invite_only" ? "active" : ""} onClick={() => setDiscoverability("invite_only")}>仅凭邀请访问</button></div>
+      <small className="soft-note">{discoverability === "public" ? "所有登录的人都能在发现页看到圈名、介绍和约定，并申请加入。" : "不出现在发现页；只有拿到邀请链接的人能看到介绍并加入。"}{circle.discoverability === "unknown" ? " 当前设置没能读取，保存后以这里的选择为准。" : ""}</small>
+    </div>
+    <span className="form-label">记账规则</span>
+    <p className="soft-note">所有圈子统一：记下即入账，允许负余额，修改或撤销需对方同意。圈主不能调整。</p>
     <span className="form-label">互助参考（最多 8 条）</span>
     <div className="reference-editor-list">{references.map((item, index) => <div key={index}>
       <input value={item.name} placeholder="一晚住宿" onChange={(e) => editReference(index, "name", e.target.value)}/>

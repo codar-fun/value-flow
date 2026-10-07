@@ -7,6 +7,8 @@ type CircleInput = {
   short?: string;
   currency?: string;
   tagline?: string;
+  joining?: string;
+  discoverability?: string;
   references?: { name: string; value: string; note?: string }[];
   rules?: string[];
 };
@@ -21,6 +23,8 @@ function colorFor(seed: string): string {
 }
 
 // GET /api/circles — circles the caller has *not* joined, for the discover page.
+// The server already leaves out invite-only circles; nothing is hidden here
+// that the server sent.
 export async function GET(request: Request) {
   return withLoop(request, async (token, call) => {
     if (!token) return Response.json({ circles: [] });
@@ -54,17 +58,17 @@ export async function POST(request: Request) {
       method: "POST",
       body: JSON.stringify({
         name: input.name!.trim(),
-        icon: Array.from(input.short?.trim() || "✨").slice(0, 2).join(""),
+        icon: input.short?.trim() || "n1",
         color: colorFor(input.name!),
         currency: input.currency!.trim(),
         description: input.tagline?.trim() || "",
-        joining: "approval",
+        // New circles ask the owner to approve newcomers unless told otherwise.
+        joining: input.joining === "direct" ? "direct" : "approval",
+        discoverability: input.discoverability === "public" ? "public" : "invite_only",
+        // The bookkeeping rules are fixed server-side (post immediately,
+        // negative balances allowed, changes need both parties); only the
+        // owner's free-text agreements are sent.
         settings: {
-          // New circles use one shared flow: approval to join, immediate posting,
-          // negative balances, and a right to dispute or correct a record.
-          allow_negative_balance: true,
-          require_confirmation: false,
-          allow_reject_correct: true,
           references: input.references ?? [],
           rules: input.rules ?? [],
         },

@@ -88,10 +88,12 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // Three-tier visibility for aid records, per the product doc.
   assert.match(page, /神秘记录/);
   assert.match(page, /仅当事人/);
-  // New circles use one clear record flow; the introduction explains it.
-  assert.match(page, /完成互助后，一方记录就能入账/);
-  assert.match(page, /余额可以为负/);
-  assert.match(page, /修改记录需对方同意/);
+  // Since 2026-10 every circle runs fixed bookkeeping rules: the client shows
+  // them and offers no toggles to change them.
+  assert.match(page, /允许负余额/);
+  assert.match(page, /记下即入账/);
+  assert.match(page, /修改或撤销需对方同意/);
+  assert.doesNotMatch(page, /setRequireConfirmation|setAllowRejectCorrect|setAllowNegative/);
   assert.match(page, /CircleSettingsSheet/);
   assert.match(page, /EditProfileSheet/);
   assert.match(page, /QRCode/);
@@ -112,11 +114,12 @@ test("keeps the confirmed product flows and visual language in source", async ()
   assert.match(page, /character-mark/);
   // Record edits are proposed, then resolved by the other party.
   assert.match(page, /修改记录/);
-  assert.match(page, /resolveCorrection/);
+  assert.match(page, /resolveRevision/);
   assert.match(page, /TransactionDialog/);
-  assert.match(page, /请对方同意修改/);
-  assert.match(page, /互助标题/);
-  assert.match(page, /事情经过/);
+  assert.match(page, /发送修改申请/);
+  assert.match(page, /发送撤销申请/);
+  assert.match(page, /draftStory/);
+  assert.match(page, /draftVisibility/);
   assert.doesNotMatch(page, /拒绝 \/ 撤销/);
   assert.doesNotMatch(page, /window\.prompt/);
   assert.doesNotMatch(page, /window\.confirm/);
@@ -183,7 +186,7 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // Post ids survive a refetch (the activity array is re-indexed each load).
   assert.match(page, /const postId = `\$\{activity\.source\}:\$\{activity\.sourceId\}`/);
   // Only the counterparty may confirm — loop 403s the record's own creator.
-  assert.match(page, /transaction\.createdById !== activeDb\.currentMemberId/);
+  assert.match(page, /revision\?\.proposedById === activeDb\.currentMemberId/);
   // Paused/closed listings leave the feed.
   assert.match(page, /listing\.status !== "active"/);
   // A backend outage is not a logout.
@@ -201,10 +204,12 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // composer path a retry writes a second ledger entry.
   assert.match(page, /async function syncAfterWrite/);
   assert.doesNotMatch(page, /await refreshData\(\);\n\s*flash\(/);
-  // Invite links are single-use, so each copy mints a fresh one.
-  assert.doesNotMatch(page, /inviteUrl\|\|await createInvite/);
-  // QR previews must encode real share URLs; a decorative grid is not a QR code.
-  assert.match(page, /QrCode value=\{inviteUrl\}/);
+  // Regular invite links last 7 days and serve any number of people (H05);
+  // nothing may still describe them as single-use.
+  assert.doesNotMatch(page, /仅可使用 1 次|只能用一次/);
+  assert.match(page, /7 天内可供多人使用/);
+  // QR previews must encode the real link; a decorative grid is not a QR code.
+  assert.match(page, /QrCode value=\{current\.url/);
   assert.match(css, /grid-template-columns: auto minmax\(0,1fr\) auto auto/);
   // Approve/decline can't be double-tapped into two requests.
   assert.match(page, /disabled=\{busy\}/);

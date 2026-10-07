@@ -146,3 +146,37 @@ test("retired partner avatar versions are no longer parsed", () => {
   for (const avatar of ["buddy1:cap:wink:flower", "buddy2:bear:happy:lavender", "buddy3:retired:happy:lavender:-"])
     assert.equal(parsePartnerAvatar(avatar), null);
 });
+
+test("revisions, discoverability, totals and opening balances map through", () => {
+  const db = toAppDatabase(
+    bootstrap({
+      circles: [
+        { ...bootstrap().circles[0], discoverability: "public", stats: { posted_records: 7, mystery_records: 2 } },
+        { ...bootstrap().circles[0], id: "circle-2", discoverability: "something-new" },
+      ],
+      circle_accounts: [{ circle_id: CIRCLE, account_id: ME, balance: 310, given: 10, received: 0, opening_balance: 300 }],
+      records: [
+        record("r1", "confirmed", {
+          version: 3,
+          pending_revision: {
+            id: "v1", revision_id: "v1", kind: "revoke", base_version: 3, old_values: { amount: 4 }, new_values: {},
+            proposed_by_id: OTHER, status: "pending", resolved_by_id: null, created_at: "2026-10-07T00:00:00Z", resolved_at: null,
+          },
+        }),
+      ],
+    }),
+  );
+
+  const [publicCircle, otherCircle] = db.circles;
+  assert.equal(publicCircle.discoverability, "public");
+  assert.deepEqual(publicCircle.stats, { posted: 7, mystery: 2 });
+  // an unrecognised value is never treated as public
+  assert.equal(otherCircle.discoverability, "unknown");
+  assert.equal(otherCircle.stats, null);
+
+  assert.equal(db.accounts[0].openingBalance, 300);
+  const [t] = db.transactions;
+  assert.equal(t.version, 3);
+  assert.equal(t.pendingRevision.kind, "revoke");
+  assert.equal(t.pendingRevision.proposedById, OTHER);
+});

@@ -576,6 +576,13 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 .correction-note span { color: var(--muted); font-size: 12px; font-weight: 730; line-height: 1.45; }
 .correction-note > div { display: flex; gap: 7px; }
 .correction-note button { min-height: 30px; border: 2px solid var(--ink); border-radius: 999px; background: var(--paper-strong); padding: 4px 13px; font-size: 12px; font-weight: 850; }
+/* Two-party revisions: what a proposal changes, and a record's history. */
+.revision-changes { margin: 0; padding-left: 16px; display: grid; gap: 3px; font-size: 10px; font-weight: 780; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-line; }
+.history-toggle { margin-top: 8px; border: 0; background: none; padding: 2px 0; color: var(--muted); font-size: 10px; font-weight: 850; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.revision-history { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.revision-history li { border-left: 3px solid var(--ink); padding: 2px 0 2px 9px; display: grid; gap: 2px; font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.revision-history b { font-weight: 850; }
+.revision-history span, .revision-history small { color: var(--muted); font-weight: 720; }
 .transaction-warning { margin: 12px 0 18px; border: 3px solid var(--ink); border-radius: 15px; background: var(--coral); box-shadow: var(--shadow-small); padding: 15px; }
 .transaction-warning b { display: block; margin-bottom: 5px; font-size: 24px; }
 .transaction-warning p { margin: 0; font-size: 12px; font-weight: 760; line-height: 1.55; }
@@ -702,3 +709,15 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
   .avatar-visual-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
   .avatar-part-tabs button { padding-inline: 6px; min-width: 0; flex: 1; }
 }
+.multiline { white-space: pre-line; overflow-wrap: anywhere; }
+/* Invite preview: the circle's facts and agreements before joining. */
+.join-facts { margin: 18px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.join-facts div { border: 2px solid var(--ink); border-radius: 12px; padding: 8px 10px; background: var(--paper); }
+.join-facts dt { font: 800 9px ui-monospace, monospace; color: var(--muted); }
+.join-facts dd { margin: 3px 0 0; font-size: 13px; font-weight: 800; overflow-wrap: anywhere; }
+.join-rules { margin: 8px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.6; }
+.invite-manage { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.invite-manage li { border: 2px solid var(--ink); border-radius: 12px; background: var(--paper-strong); padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.invite-manage span { display: grid; gap: 2px; font-size: 10px; }
+.invite-manage small { color: var(--muted); font-weight: 720; }
+.invite-manage button { min-height: 30px; border: 2px solid var(--ink); border-radius: 999px; background: var(--paper); padding: 4px 12px; font-size: 10px; font-weight: 850; }

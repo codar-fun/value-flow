@@ -10,3 +10,8 @@ LOCAL_TEST_USER_B_ACCESS_TOKEN=local-backend-issued-access-token
 LOCAL_TEST_USER_C_LABEL=User C
 LOCAL_TEST_USER_C_ACCESS_TOKEN=local-backend-issued-access-token
 LOCAL_TEST_ACCESS_TOKEN_EXPIRES_IN=900
+
+# Optional local administrator console. Never enable in production.
+# Backend must implement docs/管理员后台：本地运行与接口契约.md first.
+FLOW_ADMIN_ENABLED=false
+LOOP_ADMIN_API_BASE=http://localhost:4000/api
