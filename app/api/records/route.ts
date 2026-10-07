@@ -27,12 +27,11 @@ export type ComposeInput =
     }
   | {
       intent: "need" | "offer";
-      title: string;
-      detail?: string;
+      /** optional: the server takes the first line of `detail` */
+      title?: string;
+      detail: string;
       circleIds: string[];
       visibility?: "circle" | "cross-circle";
-      location?: string;
-      time?: string;
       reference?: string;
       tags?: string[];
     };
@@ -79,7 +78,7 @@ export async function POST(request: Request) {
         }),
       });
     } else {
-      if (!input.title?.trim()) return Response.json({ error: "请写一个标题。" }, { status: 400 });
+      if (!input.title?.trim() && !input.detail?.trim()) return Response.json({ error: "请写下内容。" }, { status: 400 });
       if (!input.circleIds?.length)
         return Response.json({ error: "请至少选择一个圈子。" }, { status: 400 });
 
@@ -91,8 +90,6 @@ export async function POST(request: Request) {
           detail: input.detail ?? "",
           circle_ids: input.circleIds,
           visibility: input.visibility ?? "circle",
-          location: input.location ?? "",
-          time: input.time ?? "",
           reference: input.reference ?? "",
           tags: input.tags ?? [],
         }),

@@ -15,6 +15,7 @@ import type {
   Listing,
   Member,
   Notification,
+  Revision,
   Transaction,
 } from "../app/types";
 import { abstractAvatarFor, isAvatarVariant } from "../app/lib/avatar";
@@ -90,6 +91,22 @@ export type LoopCircle = {
   membership_status?: string | null;
   member_count: number;
   member_ids?: string[];
+  discoverability?: string | null;
+  stats?: { posted_records: number; mystery_records: number } | null;
+};
+
+export type LoopRevision = {
+  id: string;
+  revision_id?: string;
+  kind: string;
+  base_version: number;
+  old_values: Revision["oldValues"] | null;
+  new_values: Revision["newValues"] | null;
+  proposed_by_id: string | null;
+  status: Revision["status"];
+  resolved_by_id: string | null;
+  created_at: string;
+  resolved_at: string | null;
 };
 
 export type LoopBootstrap = {
@@ -98,7 +115,7 @@ export type LoopBootstrap = {
   settings: { public_cards: boolean; public_listings: boolean; keep_hidden_private: boolean };
   members: LoopAccount[];
   circles: LoopCircle[];
-  circle_accounts: { circle_id: string; account_id: string; balance: number; given: number; received: number }[];
+  circle_accounts: { circle_id: string; account_id: string; balance: number; given: number; received: number; opening_balance?: number | null }[];
   records: {
     id: string;
     circle_id: string;
@@ -112,6 +129,8 @@ export type LoopBootstrap = {
     tags: string[];
     created_by_id: string | null;
     pending_correction: { amount: number; title?: string; story?: string; proposed_by_id: string } | null;
+    pending_revision?: LoopRevision | null;
+    version?: number;
     redacted?: boolean;
     happened_at: string | null;
     recorded_at: string;
@@ -130,6 +149,7 @@ export type LoopBootstrap = {
     tags: string[];
     status: "active" | "paused" | "closed";
     created_at: string;
+    updated_at?: string;
   }[];
   good_cards: {
     id: string;
@@ -156,6 +176,7 @@ type LoopNotification = {
   // The aid record a record event is about; absent on older rows and on
   // non-record kinds.
   record_id?: string | null;
+  revision_id?: string | null;
   text: string | null;
   read: boolean;
   created_at: string;
@@ -230,10 +251,12 @@ export function toCircle(c: LoopCircle, memberIds: string[] = []): Circle {
     members: c.member_count,
     tagline: c.description || "",
     joining: c.joining === "approval" ? "approval" : "direct",
+    discoverability: toDiscoverability(c.discoverability),
     settings: toSettings(c.settings),
     ownerId: c.owner_id || "",
     isMember: c.is_member !== false,
     memberIds,
+    stats: c.stats ? { posted: c.stats.posted_records, mystery: c.stats.mystery_records } : null,
   };
 }
 
@@ -248,7 +271,28 @@ export function toDiscoverable(c: LoopCircle): DiscoverableCircle {
     members: c.member_count,
     tagline: c.description || "",
     joining: c.joining === "approval" ? "approval" : "direct",
+    discoverability: toDiscoverability(c.discoverability),
     pending: c.membership_status === "pending",
+  };
+}
+
+// Anything the server didn't explicitly call public stays non-public.
+function toDiscoverability(value: string | null | undefined): Circle["discoverability"] {
+  return value === "public" ? "public" : value === "invite_only" ? "invite_only" : "unknown";
+}
+
+export function toRevision(v: LoopRevision): Revision {
+  return {
+    id: v.revision_id || v.id,
+    kind: v.kind === "revoke" ? "revoke" : "edit",
+    baseVersion: v.base_version,
+    oldValues: v.old_values || {},
+    newValues: v.new_values || {},
+    proposedById: v.proposed_by_id || "",
+    status: v.status,
+    resolvedById: v.resolved_by_id || "",
+    createdAt: v.created_at,
+    resolvedAt: v.resolved_at || "",
   };
 }
 
@@ -297,6 +341,7 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     balance: a.balance,
     given: a.given,
     received: a.received,
+    openingBalance: a.opening_balance ?? null,
   }));
 
   const listings: Listing[] = loop.listings.map((l) => ({
@@ -313,6 +358,7 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     tags: l.tags,
     status: l.status,
     createdAt: formatDate(l.created_at),
+    updatedAt: formatDate(l.updated_at || l.created_at),
   }));
 
   const goodCards: GoodCard[] = loop.good_cards.map((c) => ({
@@ -352,6 +398,8 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
           proposedById: r.pending_correction.proposed_by_id,
         }
       : null,
+    version: r.version ?? 1,
+    pendingRevision: r.pending_revision ? toRevision(r.pending_revision) : null,
     redacted: r.redacted === true,
   }));
 
@@ -375,6 +423,7 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     note: n.note || "",
     circleId: n.circle_id || "",
     recordId: n.record_id || "",
+    revisionId: n.revision_id || "",
     text: n.text || "",
     read: n.read,
     createdAt: formatDate(n.created_at),

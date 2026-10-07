@@ -5,9 +5,7 @@ export type CircleSettingsInput = {
   currency?: string;
   tagline?: string;
   joining?: "direct" | "approval";
-  allowNegativeBalance?: boolean;
-  requireConfirmation?: boolean;
-  allowRejectCorrect?: boolean;
+  discoverability?: "public" | "invite_only";
   references?: { name: string; value: string; note?: string }[];
   rules?: string[];
 };
@@ -18,10 +16,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { id } = await params;
   const input = (await request.json().catch(() => ({}))) as CircleSettingsInput;
 
+  // The bookkeeping rules are fixed server-side; only the owner's agreements
+  // and references are editable.
   const settings: Record<string, unknown> = {};
-  if (input.allowNegativeBalance !== undefined) settings.allow_negative_balance = input.allowNegativeBalance;
-  if (input.requireConfirmation !== undefined) settings.require_confirmation = input.requireConfirmation;
-  if (input.allowRejectCorrect !== undefined) settings.allow_reject_correct = input.allowRejectCorrect;
   if (input.references !== undefined) settings.references = input.references;
   if (input.rules !== undefined) settings.rules = input.rules;
 
@@ -29,6 +26,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (input.currency !== undefined) body.currency = input.currency.trim();
   if (input.tagline !== undefined) body.description = input.tagline.trim();
   if (input.joining !== undefined) body.joining = input.joining === "approval" ? "approval" : "direct";
+  if (input.discoverability !== undefined)
+    body.discoverability = input.discoverability === "public" ? "public" : "invite_only";
   if (Object.keys(settings).length) body.settings = settings;
 
   if (!Object.keys(body).length) return Response.json({ error: "没有要保存的改动。" }, { status: 400 });

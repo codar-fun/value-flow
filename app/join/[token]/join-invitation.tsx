@@ -1,21 +1,80 @@
 "use client";
-import {useState} from "react";
+import {useEffect,useState} from "react";
 import Link from "next/link";
 
+type Preview = {
+  type: "regular" | "owner_direct";
+  expires_at: string;
+  joins_as: "active" | "pending";
+  viewer_status: "active" | "pending" | "left" | null;
+  inviter: { display_name: string; handle: string | null } | null;
+  circle: { name: string; description: string | null; currency: string | null; joining: "direct" | "approval"; member_count: number; rules: string[] };
+};
+
+function expiry(iso: string): string {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? "" : `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+// The invite link's landing page. It shows the circle first — reading the
+// preview never accepts the invite or uses it up — and only joins when the
+// person clicks. Signing in on the way returns here rather than joining.
 export default function JoinInvitation({token}:{token:string}){
-  const [state,setState]=useState<"ready"|"loading"|"active"|"pending"|"error"|"login">("ready");
-  const [message,setMessage]=useState("你会先看到圈子的运行边界；加入不代表必须答应任何请求。");
+  const [preview,setPreview]=useState<Preview|null>(null);
+  const [state,setState]=useState<"loading"|"ready"|"joining"|"active"|"pending"|"invalid"|"error"|"login">("loading");
+  const [message,setMessage]=useState("");
+
+  useEffect(()=>{
+    let alive=true;
+    fetch(`/api/invitations/${encodeURIComponent(token)}/preview`,{cache:"no-store"})
+      .then(async(response)=>{
+        const data=await response.json().catch(()=>({})) as Preview&{error?:string};
+        if(!alive)return;
+        if(response.status===410||response.status===404){setState("invalid");setMessage(data.error||"这个邀请已经失效。");return;}
+        if(!response.ok){setState("error");setMessage(data.error||"邀请暂时打不开，请稍后再试。");return;}
+        setPreview(data);
+        setState(data.viewer_status==="active"?"active":"ready");
+      })
+      .catch(()=>{if(alive){setState("error");setMessage("网络不太顺，请稍后再试。");}});
+    return()=>{alive=false;};
+  },[token]);
+
   async function join(){
     try{
-      setState("loading");
+      setState("joining");
       const response=await fetch(`/api/invitations/${encodeURIComponent(token)}`,{method:"POST"});
-      // loop-backend requires a session to accept an invite.
-      if(response.status===401){setState("login");setMessage("请先登录流动圈，再回到这个邀请链接加入。");return;}
-      const result=await response.json() as {status?:"active"|"pending";circleName?:string;error?:string};
+      if(response.status===401){setState("login");return;}
+      const result=await response.json().catch(()=>({})) as {status?:"active"|"pending";error?:string};
       if(!response.ok)throw new Error(result.error||"加入失败");
-      setState(result.status||"active");
-      setMessage(result.status==="pending"?`已申请加入 ${result.circleName}，等待管理员确认。`:`已经加入 ${result.circleName}，可以回到流动圈了。`);
+      setState(result.status==="pending"?"pending":"active");
     }catch(error){setState("error");setMessage(error instanceof Error?error.message:"加入失败");}
   }
-  return <main className="join-page"><section className="join-card"><span>FLOW CIRCLE · 圈子邀请</span><h1>{state==="active"?"欢迎来到圈里。":state==="pending"?"申请已经送出。":state==="login"?"先登录，再加入。":"有人邀请你，进入一段真实关系。"}</h1><p>{message}</p><div><b>加入之前，你始终可以知道</b><p>什么会被记录、谁能看见；你可以拒绝具体请求，也可以暂停或退出。</p></div>{state==="login"?<Link href={`/?join=${encodeURIComponent(token)}`}>前往登录</Link>:state==="ready"||state==="error"?<button onClick={join}>确认并继续</button>:state==="loading"?<button disabled>正在确认邀请…</button>:<Link href="/">回到流动圈</Link>}</section></main>;
+
+  const c=preview?.circle;
+  const waiting=preview?.viewer_status==="pending"&&preview.joins_as==="pending";
+  const title=state==="active"?"你已经在圈里了。":state==="pending"||waiting?"申请已经送出。":state==="invalid"?"这个邀请已经失效。":state==="login"?"先登录，再回来加入。":c?`加入「${c.name}」？`:"正在打开邀请…";
+
+  return <main className="join-page"><section className="join-card">
+    <span>FLOW CIRCLE · 圈子邀请</span>
+    <h1>{title}</h1>
+    {c&&state!=="invalid"&&<>
+      {c.description&&<p className="multiline">{c.description}</p>}
+      <dl className="join-facts">
+        <div><dt>额度名称</dt><dd>{c.currency||"积分"}</dd></div>
+        <div><dt>成员</dt><dd>{c.member_count} 位</dd></div>
+        <div><dt>加入方式</dt><dd>{preview!.type==="owner_direct"?"圈主专属邀请，无需审批":c.joining==="approval"?"需要圈主审批":"直接加入"}</dd></div>
+        <div><dt>邀请有效至</dt><dd>{expiry(preview!.expires_at)}{preview!.type==="regular"?" · 可多人使用":""}</dd></div>
+        {preview!.inviter&&<div><dt>邀请人</dt><dd>{preview!.inviter.display_name}</dd></div>}
+      </dl>
+      {c.rules.length>0&&<div><b>圈子约定</b><ol className="join-rules">{c.rules.map((rule)=><li key={rule}>{rule}</li>)}</ol></div>}
+      <div><b>加入之前，你始终可以知道</b><p>什么会被记录、谁能看见；你可以拒绝具体请求，也可以暂停或退出。记下的互助立即入账，修改或撤销需要双方同意。</p></div>
+    </>}
+    {state==="pending"||waiting?<p>圈主同意后你会收到通知。</p>:null}
+    {(state==="invalid"||state==="error")&&<p>{message}</p>}
+    {state==="login"?<Link href={`/?join=${encodeURIComponent(token)}`}>登录后回到这里</Link>
+      :state==="ready"&&!waiting?<button onClick={join}>{preview?.joins_as==="pending"?"申请加入":"加入圈子"}</button>
+      :state==="joining"?<button disabled>正在提交…</button>
+      :state==="error"&&c?<button onClick={join}>再试一次</button>
+      :state==="loading"?null:<Link href="/">回到流动圈</Link>}
+  </section></main>;
 }

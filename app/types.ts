@@ -59,10 +59,16 @@ export type Circle = {
   /** loop `description` */
   tagline: string;
   joining: "direct" | "approval";
+  /** whether the circle is listed in discovery; "unknown" when the server
+   *  didn't say — never treated as public */
+  discoverability: "public" | "invite_only" | "unknown";
   settings: CircleSettings;
   ownerId: string;
   isMember: boolean;
   memberIds: string[];
+  /** server totals of records on the ledger (not just the ones I can read);
+   *  null when the server didn't send them */
+  stats: { posted: number; mystery: number } | null;
 };
 
 export type CircleAccount = {
@@ -71,6 +77,8 @@ export type CircleAccount = {
   balance: number;
   given: number;
   received: number;
+  /** imported starting credit; null = never initialized */
+  openingBalance: number | null;
 };
 
 export type Listing = {
@@ -87,6 +95,7 @@ export type Listing = {
   tags: string[];
   status: "active" | "paused" | "closed";
   createdAt: string;
+  updatedAt: string;
 };
 
 export type GoodCard = {
@@ -97,6 +106,21 @@ export type GoodCard = {
   date: string;
   visibility: "cross-circle" | "hidden";
   circleId: string;
+};
+
+/** A proposed change to a posted record (since 2026-10): nothing changes until
+ *  the *other* party accepts. `kind: "revoke"` withdraws the whole record. */
+export type Revision = {
+  id: string;
+  kind: "edit" | "revoke";
+  baseVersion: number;
+  oldValues: Partial<Record<"amount" | "title" | "story" | "visibility", string | number>>;
+  newValues: Partial<Record<"amount" | "title" | "story" | "visibility", string | number>>;
+  proposedById: string;
+  status: "pending" | "accepted" | "declined" | "withdrawn";
+  resolvedById: string;
+  createdAt: string;
+  resolvedAt: string;
 };
 
 /** A correction one party proposed and the other has not yet resolved. */
@@ -125,6 +149,10 @@ export type Transaction = {
   /** who logged it — only the other party may confirm a pending record */
   createdById: string;
   pendingCorrection: PendingCorrection | null;
+  /** bumped by every accepted revision */
+  version: number;
+  /** the open proposal on this record; only its two parties receive it */
+  pendingRevision: Revision | null;
   /** true when the server stripped the parties and story before sending it */
   redacted: boolean;
 };
@@ -147,6 +175,7 @@ export type DiscoverableCircle = {
   members: number;
   tagline: string;
   joining: "direct" | "approval";
+  discoverability: "public" | "invite_only" | "unknown";
   /** I've applied and am waiting on the owner — not joinable again. */
   pending?: boolean;
 };
@@ -163,6 +192,8 @@ export type Notification = {
   // Set on record events (backend record_id); "" for older notifications,
   // which fall back to matching by actor and amount.
   recordId: string;
+  /** set on revision events */
+  revisionId: string;
   text: string;
   read: boolean;
   createdAt: string;
