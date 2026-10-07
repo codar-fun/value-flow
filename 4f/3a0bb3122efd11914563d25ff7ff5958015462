@@ -1,0 +1,107 @@
+app/api/shares/route.ts
+  s_48a3d075bd0133::t_5d12502ef0d595 1-19
+app/types.ts
+  s_48a3d075bd0133::t_7188f4a338e29a 62-64,69-71,80-81,98,111-125,152-155,178,195-196
+app/lib/admin-proxy.ts
+  s_48a3d075bd0133::t_a805eac644b61f 1-91
+app/api/listings/[id]/route.ts
+  s_48a3d075bd0133::t_5c8ebf3afdc12d 2,4-16,19-31,35
+app/api/circles/[id]/preview/route.ts
+  s_48a3d075bd0133::t_5d12502ef0d595 1-11
+app/lib/origin.ts
+  s_48a3d075bd0133::t_5d12502ef0d595 1-8
+"docs/后端交付：H01–H09 接口契约.md"
+  s_48a3d075bd0133::t_800cbc7f461ceb 1-155
+  s_48a3d075bd0133::t_2f36d5405d8ca0 156
+app/admin/admin-console.tsx
+  s_48a3d075bd0133::t_1c1c44dc8bdfbe 1-234
+app/admin/page.tsx
+  s_48a3d075bd0133::t_09a1e502cabf8a 1-12
+app/api/shares/[token]/preview/route.ts
+  s_48a3d075bd0133::t_5d12502ef0d595 1-10
+app/api/records/[id]/revisions/[revisionId]/route.ts
+  s_48a3d075bd0133::t_5d12502ef0d595 1-18
+app/api/invitations/[token]/preview/route.ts
+  s_48a3d075bd0133::t_5d12502ef0d595 1-12
+app/s/[token]/shared-item.tsx
+  s_48a3d075bd0133::t_a61aa6d0370d0c 1-37
+app/join/[token]/join-invitation.tsx
+  s_48a3d075bd0133::t_5c38d95e18fcd4 2,5-21,23-41,44,46-47,49,52-79
+tests/admin-proxy.test.mjs
+  s_48a3d075bd0133::t_196b44f5989f91 1-136
+app/globals.css
+  s_48a3d075bd0133::t_f90e5278038ff8 534-540
+  s_48a3d075bd0133::t_3e1e1c55b12bfc 786-817
+  s_48a3d075bd0133::t_5c38d95e18fcd4 775-780
+  s_48a3d075bd0133::t_3e4e0cd275fe78 774
+  s_48a3d075bd0133::t_c62bef9802dff8 781-785
+app/page.tsx
+  s_48a3d075bd0133::t_a5dec365aa25f2 1096-1097,1100,1104-1142,1172-1176
+  s_48a3d075bd0133::t_b14ae8bcabbb3d 1640,1653-1656,1683,1685,1687,1689
+  s_48a3d075bd0133::t_1c8da766ba9d16 1340,1342
+  s_48a3d075bd0133::t_c62bef9802dff8 1553-1560,1562,1564-1567,1569-1577,1585-1633
+  s_48a3d075bd0133::t_4f8c7fb899eb00 6,20,1182-1201,1211-1214,1284-1289,1291,1297-1299,1301-1305,1309-1321,1324-1325,1327,1329-1339,1341,1343-1345,1372-1375,1377,1384-1385,1388-1395,1397-1398,1400-1403,1435-1447,1449
+  s_48a3d075bd0133::t_1a63ae36581ac9 45
+  s_48a3d075bd0133::t_824e7b97334a2b 518-520,525
+  s_48a3d075bd0133::t_dfb0b477c171fb 734
+  s_48a3d075bd0133::t_92877e8e866c6c 940-944,953,955,989-990,995-997,1006,1009,1014-1015,1018-1020,1049-1051,1055,1062
+  s_48a3d075bd0133::t_822807d1dacf23 10
+  s_48a3d075bd0133::t_f9c8a698c4e493 365-366,700,735,863,870,1202-1204,1215-1229,1408-1412,1456-1492
+  s_48a3d075bd0133::t_de81354821117f 1495-1500,1503-1504,1510
+  s_48a3d075bd0133::t_3e4e0cd275fe78 1230-1232,1250,1253-1267,1269-1273,1275-1276,1278-1280,1366,1423-1434
+  s_48a3d075bd0133::t_7cb6d0880af97f 1813-1814,1839,1860-1863,1865-1866
+  s_48a3d075bd0133::t_f6cdc2878ce570 1578-1584
+  s_48a3d075bd0133::t_837b433e999ba6 1753-1763
+  s_48a3d075bd0133::t_18c233cc527a50 1387
+app/api/records/[id]/history/route.ts
+  s_48a3d075bd0133::t_5d12502ef0d595 1-11
+app/api/circles/[id]/route.ts
+  s_48a3d075bd0133::t_5c8ebf3afdc12d 8,19-20,29-30
+app/api/circles/route.ts
+  s_48a3d075bd0133::t_5c8ebf3afdc12d 11,26-27,65-70
+app/api/records/[id]/revisions/route.ts
+  s_48a3d075bd0133::t_5d12502ef0d595 1-32
+app/api/invitations/route.ts
+  s_48a3d075bd0133::t_5c8ebf3afdc12d 2-3,5-16,18-22,24,29-33,42-55
+app/api/records/route.ts
+  s_48a3d075bd0133::t_92877e8e866c6c 30-32,81
+app/api/admin/[...path]/route.ts
+  s_48a3d075bd0133::t_a805eac644b61f 1-7
+tests/runtime-mapping.test.mjs
+  s_48a3d075bd0133::t_7c5434888313ea 112-145
+db/runtime.ts
+  s_48a3d075bd0133::t_1a63ae36581ac9 18
+  s_48a3d075bd0133::t_7188f4a338e29a 94-109,118,132-133,152,179,254,259,274,279-298,344,361,401-402,426
+tests/rendered-html.test.mjs
+  s_48a3d075bd0133::t_f14dbe545f9f02 90-91,93-95,110-114,116-118
+  s_48a3d075bd0133::t_5b44e698fa4184 203-208
+app/api/members/[id]/profile/route.ts
+  s_48a3d075bd0133::t_5d12502ef0d595 1-14
+app/api/invitations/[token]/route.ts
+  s_48a3d075bd0133::t_5c8ebf3afdc12d 2,24-30
+  s_48a3d075bd0133::t_6ecddbeab6d805 31-32
+app/api/shares/[token]/route.ts
+  s_48a3d075bd0133::t_5d12502ef0d595 1-11
+app/lib/relay.ts
+  s_48a3d075bd0133::t_5d12502ef0d595 1-15
+app/s/[token]/page.tsx
+  s_48a3d075bd0133::t_a61aa6d0370d0c 1-3
+package.json
+  s_48a3d075bd0133::t_acb2d756d6cd5f 12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4f3a0bb3122efd11914563d25ff7ff5958015462",
+  "prompts": {},
+  "sessions": {
+    "s_48a3d075bd0133": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb01a44c-eda1-4b04-97da-246e51ecce9e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
