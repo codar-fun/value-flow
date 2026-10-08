@@ -62,7 +62,7 @@ test('anonymous invitation preview never accepts and normalizes invalid-link cop
   assert.equal(calls.at(-1).path, '/invitations/invite%2Fone/preview');
   assert.equal(response.status, 410);
   assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.equal((await response.json()).error, '邀请不存在、已过期或已撤销。');
+  assert.equal((await response.json()).error, '邀请不可用，请重新获取。');
   token = 'fixture-token';
 });
 test('public share maps targetId and uses the external HTTPS origin for copy and QR', async () => {

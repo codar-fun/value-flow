@@ -31,7 +31,7 @@ export default function JoinInvitation({token}:{token:string}){
       .then(async(response)=>{
         const data=await response.json().catch(()=>({})) as Preview&{error?:string};
         if(!alive)return;
-        if(response.status===410||response.status===404){setState("invalid");setMessage("邀请不存在、已过期或已撤销。");return;}
+        if(response.status===410||response.status===404){setState("invalid");setMessage("邀请不可用，请重新获取。");return;}
         if(!response.ok){setState("error");setMessage(data.error||"邀请暂时打不开，请稍后再试。");return;}
         setPreview(data);
         setState(data.viewer_status==="active"?"active":"ready");
@@ -46,7 +46,7 @@ export default function JoinInvitation({token}:{token:string}){
       const response=await fetch(`/api/invitations/${encodeURIComponent(token)}`,{method:"POST"});
       if(response.status===401){setState("login");return;}
       const result=await response.json().catch(()=>({})) as {status?:"active"|"pending";error?:string};
-      if(response.status===410||response.status===404){setState("invalid");setMessage("邀请不存在、已过期或已撤销。");return;}
+      if(response.status===410||response.status===404){setState("invalid");setMessage("邀请不可用，请重新获取。");return;}
       if(!response.ok)throw new Error(result.error||"加入失败");
       setState(result.status==="pending"?"pending":"active");
     }catch(error){setState("error");setMessage(error instanceof Error?error.message:"加入失败");}

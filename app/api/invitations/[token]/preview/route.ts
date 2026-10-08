@@ -7,6 +7,6 @@ import { relay } from "@/app/lib/relay";
 export async function GET(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   return withLoop(request, async (_accessToken, call) =>
-    relay(await call(`/invitations/${encodeURIComponent(token)}/preview`), "邀请已失效或不存在"),
+    relay(await call(`/invitations/${encodeURIComponent(token)}/preview`), "邀请不可用，请重新获取。"),
   );
 }
