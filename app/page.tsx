@@ -222,6 +222,14 @@ function LoginGate({ onDone }: { onDone: () => Promise<void> }) {
   const [username, setUsername] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [cooldown, setCooldown] = useState(0);
+
+  // Counts down the wait before the code can be sent again.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => setCooldown((n) => n - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
 
   useEffect(() => {
     let active = true;
@@ -242,7 +250,7 @@ function LoginGate({ onDone }: { onDone: () => Promise<void> }) {
   async function requestCode() {
     if (!email.trim()) return setError("请填写邮箱");
     setBusy(true); setError("");
-    try { await post("/api/auth/request", { email: email.trim() }); setStep("code"); }
+    try { await post("/api/auth/request", { email: email.trim() }); setStep("code"); setCooldown(60); }
     catch (e) { setError(e instanceof Error ? e.message : "发送失败"); }
     finally { setBusy(false); }
   }
@@ -282,6 +290,8 @@ function LoginGate({ onDone }: { onDone: () => Promise<void> }) {
     {step === "code" && <>
       <div className="account-form"><label><span>验证码</span><input inputMode="numeric" placeholder="6 位验证码" value={code} onChange={(e) => setCode(e.target.value)}/></label></div>
       <button className="primary-button" onClick={verify} disabled={busy}>{busy ? "验证中…" : "登录"}</button>
+      <p className="account-hint">邮件有时会晚到几分钟，也请看看垃圾邮件箱。</p>
+      <button className="text-link" onClick={requestCode} disabled={busy || cooldown > 0}>{busy ? "发送中…" : cooldown > 0 ? `没收到？${cooldown} 秒后可重发` : "没收到？重新发送验证码"}</button>
       <button className="text-link" onClick={() => { setStep("email"); setError(""); }}>换一个邮箱</button>
     </>}
     {step === "profile" && <>
