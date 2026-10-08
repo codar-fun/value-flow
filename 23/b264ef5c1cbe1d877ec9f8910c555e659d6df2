@@ -1,0 +1,19 @@
+app/globals.css
+  s_48a3d075bd0133::t_0477e410b3a124 727
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "23b264ef5c1cbe1d877ec9f8910c555e659d6df2",
+  "prompts": {},
+  "sessions": {
+    "s_48a3d075bd0133": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb01a44c-eda1-4b04-97da-246e51ecce9e",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
