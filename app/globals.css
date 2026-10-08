@@ -724,3 +724,4 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 .join-card > p.account-hint { margin: 18px 0 0; color: var(--muted); font-size: 12px; font-weight: 700; text-align: center; }
 .join-card button.text-link { width: auto; margin: 6px auto 0; padding: 10px 12px; border: 0; border-radius: 0; background: transparent; box-shadow: none; font-size: 13px; font-weight: 800; text-decoration: underline; }
 .join-card button.text-link:disabled { color: var(--muted); cursor: not-allowed; opacity: 1; text-decoration: none; }
+.join-card > p + button, .join-card > p + a { margin-top: 20px; }
