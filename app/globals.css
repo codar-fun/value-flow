@@ -721,5 +721,6 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 .invite-manage span { display: grid; gap: 2px; font-size: 10px; }
 .invite-manage small { color: var(--muted); font-weight: 720; }
 .invite-manage button { min-height: 30px; border: 2px solid var(--ink); border-radius: 999px; background: var(--paper); padding: 4px 12px; font-size: 10px; font-weight: 850; }
-.account-hint { margin: 10px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
-.text-link:disabled { color: var(--muted); cursor: not-allowed; text-decoration: none; }
+.join-card > p.account-hint { margin: 18px 0 0; color: var(--muted); font-size: 12px; font-weight: 700; text-align: center; }
+.join-card button.text-link { width: auto; margin: 6px auto 0; padding: 10px 12px; border: 0; border-radius: 0; background: transparent; box-shadow: none; font-size: 13px; font-weight: 800; text-decoration: underline; }
+.join-card button.text-link:disabled { color: var(--muted); cursor: not-allowed; opacity: 1; text-decoration: none; }
