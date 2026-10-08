@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import QRCode from "qrcode";
 import type { AbstractAvatarVariant, AvatarVariant, Circle, Color, DiscoverableCircle, GoodCard, JoinRequest, Listing, Member, Revision, Transaction } from "./types";
+import { listingDisplayCircleIds } from "./lib/listing-scope";
 import { parseFaceAvatar } from "./lib/avatar";
 import { parsePartnerAvatar } from "./lib/partner-avatar";
 import { AvatarWorkshop } from "./components/avatar-workshop";
@@ -60,7 +61,7 @@ function canSharePost(post: Post): boolean {
 function sharePostForListing(listing: Listing): Post {
   const author = memberById(listing.memberId);
   const scope = listing.visibility === "cross-circle" ? "跨圈公开" : listing.circleIds.map((id) => circleById(id)?.name).filter(Boolean).join("、");
-  return { id: `listing:${listing.id}`, kind: listing.type, badge: listing.type === "need" ? "我想要" : "我可以给", person: author.name, caption: author.handle, memberId: author.id, avatar: author.initial, avatarVariant: author.avatar, color: listing.type === "need" ? "pink" : "green", text: listing.detail || listing.title, meta: scope, circleIds: listing.circleIds, source: "listing", sourceId: listing.id };
+  return { id: `listing:${listing.id}`, kind: listing.type, badge: listing.type === "need" ? "我想要" : "我可以给", person: author.name, caption: author.handle, memberId: author.id, avatar: author.initial, avatarVariant: author.avatar, color: listing.type === "need" ? "pink" : "green", text: listing.detail || listing.title, meta: scope, circleIds: listingDisplayCircleIds(listing, memberById(listing.memberId).circleIds), source: "listing", sourceId: listing.id };
 }
 
 function sharePostForTransaction(record: Transaction): Post {
@@ -116,7 +117,7 @@ function buildPosts(): Post[] {
       if (!listing || !member || listing.status !== "active") continue;
       const names = listing.circleIds.map((id) => circleById(id)?.name).filter(Boolean);
       const scope = listing.visibility === "cross-circle" ? "跨圈公开" : names.join("、");
-      result.push({ id: postId, kind: listing.type, badge: listing.type === "need" ? "我想要" : "我可以给", person: member.name, caption: member.handle, memberId: member.id, avatar: member.initial, avatarVariant: member.avatar, color: listing.type === "need" ? "pink" : "green", text: listing.detail || listing.title, meta: scope, circleIds: listing.circleIds, source: activity.source, sourceId: listing.id });
+      result.push({ id: postId, kind: listing.type, badge: listing.type === "need" ? "我想要" : "我可以给", person: member.name, caption: member.handle, memberId: member.id, avatar: member.initial, avatarVariant: member.avatar, color: listing.type === "need" ? "pink" : "green", text: listing.detail || listing.title, meta: scope, circleIds: listingDisplayCircleIds(listing, memberById(listing.memberId).circleIds), source: activity.source, sourceId: listing.id });
       continue;
     }
     if (activity.source === "card") {
@@ -1090,7 +1091,7 @@ function ComposerSheet({ circleId, initialOtherId, intent, setIntent, onClose, o
         <label><span>{intent === "need" ? "愿意给出的社区货币（可选）" : "希望收到的社区货币（可选）"}</span><input value={reference} onChange={(e) => setReference(e.target.value)} placeholder={listingCurrency ? `比如：10 ${listingCurrency}，也可以商量` : "可以写想法，也可以留空再商量"}/></label>
         <span className="form-label">在哪些圈子里出现</span>
         <div className="circle-picker">{myCircles.map((item) => <button key={item.id} className={listingCircleIds.includes(item.id) ? "active" : ""} onClick={() => toggleListingCircle(item.id)}><CircleGlyph icon={item.short} seed={item.id} size="tiny"/>{item.name}</button>)}</div>
-        <label className="inline-check"><input type="checkbox" checked={crossCircle} onChange={(e) => setCrossCircle(e.target.checked)}/><span><b>跨圈公开</b><small>会出现在你加入的 {myCircles.length} 个圈子里。</small></span></label>
+        <label className="inline-check"><input type="checkbox" checked={crossCircle} onChange={(e) => setCrossCircle(e.target.checked)}/><span><b>跨圈公开</b><small>在你当前及以后加入的圈子里显示，也允许跨圈发现。</small></span></label>
         <div className="composer-submit"><button className="primary-button" onClick={buildDraft}>查看草稿 <b>→</b></button></div>
       </div>)}
     </> : <>
@@ -1128,6 +1129,7 @@ function PostShareSheet({ post, onClose, onNotice }: { post: Post; onClose: () =
   const publishable = canSharePost(post) && (!record || record.visibility === "public" && !record.pendingRevision) && (!card || card.visibility === "cross-circle");
   const [publicLink, setPublicLink] = useState<{ url: string; token: string } | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   async function createPublicLink() {
     if (linkBusy) return;
     setLinkBusy(true);
@@ -1168,13 +1170,20 @@ function PostShareSheet({ post, onClose, onNotice }: { post: Post; onClose: () =
         await navigator.share({ files: [file], title: `${post.badge}｜${post.person}` });
         onClose(); onNotice("图片已交给系统分享");
       } else {
-        await savePosterImage(posterRef.current, `${post.badge}-${post.person}`);
-        onNotice("此设备不支持直接发送图片，已保存分享图");
+        setImagePreview(dataUrl);
+        onNotice("请长按下方图片保存，再发送到微信");
       }
     } catch (error) { if (error instanceof DOMException && error.name === "AbortError") return; onNotice("分享图片失败，请稍后再试"); }
   }
 
-  async function saveImage() { try { await savePosterImage(posterRef.current, `${post.badge}-${post.person}`); onNotice("动态分享图片已保存"); } catch { onNotice("保存失败，请稍后再试"); } }
+  async function saveImage() { try {
+    if (/MicroMessenger/i.test(navigator.userAgent)) {
+      if (!posterRef.current) throw new Error("分享图还没有准备好");
+      await document.fonts?.ready;
+      setImagePreview(await toPng(posterRef.current, { cacheBust: true, pixelRatio: 2, backgroundColor: "#fffaf2" }));
+      onNotice("请长按下方图片保存，再发送到微信");
+    } else { await savePosterImage(posterRef.current, `${post.badge}-${post.person}`); onNotice("已发起图片下载，请在下载列表中查看"); }
+  } catch { onNotice("保存失败，请稍后再试"); } }
 
   return <Modal onClose={onClose} label="分享内容预览">
     <SheetHeading eyebrow="主动分享" title={post.source === "listing" ? post.badge : post.source === "card" ? "好人好事" : "互助记录"} color={post.color}/>
@@ -1184,6 +1193,7 @@ function PostShareSheet({ post, onClose, onNotice }: { post: Post; onClose: () =
     </div>
     <p className="share-explainer">图片会展示上面的完整内容。{post.source === "transaction" ? "发送前，请确认故事中没有不想公开的他人信息。" : "可以保存，也可以用手机直接发送。"}</p>
     <div className="sheet-actions"><button className="secondary-button" onClick={saveImage}>保存图片</button><button className="primary-button" onClick={shareImage}>分享图片</button></div>
+    {imagePreview && <div className="share-image-preview"><p className="soft-note">长按图片保存到相册，再到微信选择图片发送。</p><img src={imagePreview} alt={`${post.person}的${post.badge}分享图`} style={{ width: "100%", height: "auto" }}/></div>}
     {publishable && !publicLink && <button className="text-link" disabled={linkBusy} onClick={createPublicLink}>{linkBusy ? "正在生成…" : "生成公开链接"}</button>}
     {publicLink && <><p className="soft-note">持链接可直接查看这一条。暂停、结束或撤销后失效。</p><div className="share-link-row"><span>{publicLink.url}</span><button className="secondary-button" onClick={shareLink}>分享链接</button></div><button className="text-link" disabled={linkBusy} onClick={revokePublicLink}>收回公开链接</button>{isLocalUrl(publicLink.url) && <p className="local-link-warning">本地测试地址，仅这台电脑可打开。</p>}</>}
   </Modal>;
@@ -1248,7 +1258,7 @@ function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, onNotic
   const activeAccount = scopedCircleId ? accounts.find((item) => item.circleId === scopedCircleId) : undefined;
   const activeCircle = scopedCircleId ? circleById(scopedCircleId) : undefined;
   const cards = activeDb.goodCards.filter((card) => card.toMemberId === member.id && (card.visibility === "cross-circle" || isSelf) && (!card.circleId || visibleCircleIds.includes(card.circleId)) && (!scopedCircleId || card.circleId === scopedCircleId));
-  const listings = activeDb.listings.filter((listing) => listing.memberId === member.id && (isSelf || listing.status === "active") && listing.circleIds.some((id) => visibleCircleIds.includes(id)) && (!scopedCircleId || listing.circleIds.includes(scopedCircleId)));
+  const listings = activeDb.listings.filter((listing) => listing.memberId === member.id && (isSelf || listing.status === "active") && listingDisplayCircleIds(listing, member.circleIds).some((id) => visibleCircleIds.includes(id)) && (!scopedCircleId || listingDisplayCircleIds(listing, member.circleIds).includes(scopedCircleId)));
   const transactions = activeDb.transactions.filter((transaction) => {
     const viewerInvolved = transaction.providerId === activeDb.currentMemberId || transaction.receiverId === activeDb.currentMemberId;
     return (transaction.providerId === member.id || transaction.receiverId === member.id) && visibleCircleIds.includes(transaction.circleId) && (!scopedCircleId || transaction.circleId === scopedCircleId) && (isSelf || viewerInvolved || transaction.visibility === "public") && (viewerInvolved || transaction.status !== "pending" && transaction.status !== "rejected");
@@ -1371,7 +1381,7 @@ function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, onNotic
 
   return <><section className="profile-page" aria-label={`${member.name}的档案`}>
     <header className="profile-page-heading"><Character member={member}/><div className="profile-page-identity"><small>{isSelf ? "我的档案" : "成员档案"} · {member.handle}</small><h2>{member.name}</h2><p>{member.bio || "还没有填写介绍"}</p></div>
-      {isSelf ? <div className="profile-page-actions"><button onClick={onEdit}>编辑资料</button><button onClick={onShare}>分享档案</button></div> : <div className="profile-page-actions"><button onClick={onRecord} disabled={visibleCircleIds.length === 0}>记一笔</button>{contact ? <div className="contact-reveal"><span>{member.wechat ? "联系方式" : "账号"}</span><b>{member.wechat || member.handle}</b><button onClick={async () => { try { await navigator.clipboard.writeText(member.wechat || member.handle); onNotice("已复制"); } catch { onNotice("复制失败，请手动复制"); } }}>复制</button></div> : <button onClick={() => setContact(true)}>联系{member.name}</button>}</div>}
+      {isSelf ? <div className="profile-page-actions"><button onClick={onEdit}>编辑资料</button><button onClick={onShare}>分享档案</button></div> : <div className="profile-page-actions"><button onClick={onRecord} disabled={visibleCircleIds.length === 0}>记一笔</button>{contact ? <div className="contact-reveal"><span>联系方式</span><b>{member.wechat || "未填写"}</b>{member.wechat && <button onClick={async () => { try { await navigator.clipboard.writeText(member.wechat); onNotice("已复制"); } catch { onNotice("复制失败，请手动复制"); } }}>复制</button>}</div> : <button onClick={() => setContact(true)}>联系{member.name}</button>}</div>}
     </header>
     {isSelf && <div className="profile-publish-actions"><button onClick={() => onPublish("need")}><Pill color="pink">我想要</Pill><b>发布需要 ＋</b></button><button onClick={() => onPublish("offer")}><Pill color="green">我可以给</Pill><b>发布提供 ＋</b></button></div>}
     <p className="profile-scope-note">{scopedCircleId ? `${activeCircle?.name} · ${isSelf ? "我的圈内内容" : "你们共同圈子的可见内容"}` : isSelf ? "我在全部圈子的内容" : "你们共同圈子的可见内容"}</p>
@@ -1423,7 +1433,7 @@ function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, onNotic
 
     {accounts.length > 0 && <><SectionTitle title={isSelf ? "我在各圈" : "你们的共同圈子"}/><div className="account-strip">{accounts.map((account) => { const circle = circleById(account.circleId) ?? EMPTY_CIRCLE; return <button key={account.circleId} type="button" className={scopedCircleId === account.circleId ? "selected" : ""} aria-current={scopedCircleId === account.circleId ? "true" : undefined} aria-label={`查看${circle.name}的档案内容`} onClick={() => onSelectCircle(account.circleId)}><span>{circle.name}</span><b>{account.balance > 0 ? "+" : ""}{account.balance} {circle.currency}</b><small>给出 {account.given} · 收到 {account.received}</small></button>; })}</div></>}
     {!isSelf && <><SectionTitle title="TA 加入的其他圈子"/>{viewerProfile === null ? <p className="soft-note">正在读取…</p> : viewerProfile === "error" ? <p className="soft-note">未能读取其他圈子，请刷新重试。</p> : viewerProfile.other_discoverable_circles.length === 0 ? <div className="empty-archive">目前没有其他可发现的圈子</div> : <div className="open-circle-list">{viewerProfile.other_discoverable_circles.map((circle) => <button key={circle.id} onClick={() => onPreview(circle.id)}><CircleGlyph icon={circle.icon || "n1"} seed={circle.id} size="small"/><span><b>{circle.name}</b><small>{circle.description}</small></span><strong>看介绍 →</strong></button>)}</div>}</>}
-    {!isSelf && contact && !member.wechat && <p className="soft-note">TA 还没有填写联系方式，可以先通过账号联系。</p>}
+
   </section>
   {listingToClose && <Modal onClose={() => { if (!listingBusy) setListingToClose(null); }} label="结束发布">
     <SheetHeading title="结束这条发布？" description="结束后不能恢复或编辑，公开分享链接也会失效。" color="coral"/>
@@ -1679,7 +1689,7 @@ function CreateCircleView({ onExit, onDone }: { onExit: () => void; onDone: (inp
     <div className="create-panel">
       {step === 1 && <><div className="create-heading"><span>STEP 01 · IDENTITY</span><h2>圈子身份</h2></div><div className="create-form-grid"><label className="wide"><span>圈子名称</span><input value={name} maxLength={40} placeholder="例如：周末手作营地" onChange={(event) => setName(event.target.value)}/></label><label><span>社区货币名称</span><input value={currency} maxLength={20} placeholder="例如：泡泡" onChange={(event) => setCurrency(event.target.value)}/></label><label className="wide"><span>一句话介绍</span><textarea value={tagline} maxLength={120} placeholder="一起做东西，也一起分享工具、经验和时间。" onChange={(event) => setTagline(event.target.value)}/></label></div><div className="circle-icon-picker"><div className="circle-icon-picker-heading"><span className="form-label">选择圈子图案</span></div>{CIRCLE_ICON_GROUPS.map((group) => <section key={group.label}><header><b>{group.label}</b></header><div>{group.keys.map((key) => <button key={key} type="button" className={short === key ? "selected" : ""} onClick={() => setShort(key)} aria-label={`选择${CIRCLE_ICON_LABELS[key]}圈子图案`}><CircleGlyph icon={key} seed={key} size="small"/><span>{CIRCLE_ICON_LABELS[key]}</span></button>)}</div></section>)}</div></>}
 
-      {step === 2 && <><div className="create-heading"><span>STEP 02 · MUTUAL CREDIT</span><h2>互助设置</h2></div><div className="mechanism-card"><div className="mechanism-icon">＋<br/>−</div><div><Pill color="yellow">互助账户</Pill><h3>成员共同记账</h3></div><b>已选择</b></div><div className="reference-editor"><div><span>互助参考</span><input value={referenceName} placeholder="一小时协作" onChange={(event) => setReferenceName(event.target.value)}/></div><div><span>大约多少社区货币</span><input value={referenceValue} placeholder={`约 5 ${unit}`} onChange={(event) => setReferenceValue(event.target.value)}/></div></div><div className="create-rule-note"><b>默认圈子规则</b><p>一方记录即入账；修改需对方同意；可以先接受帮助。</p></div></>}
+      {step === 2 && <><div className="create-heading"><span>STEP 02 · MUTUAL CREDIT</span><h2>互助设置</h2></div><div className="mechanism-card"><div className="mechanism-icon">＋<br/>−</div><div><Pill color="yellow">互助账户</Pill><h3>成员共同记账</h3></div></div><div className="reference-editor"><div><span>互助参考</span><input value={referenceName} placeholder="一小时协作" onChange={(event) => setReferenceName(event.target.value)}/></div><div><span>大约多少社区货币</span><input value={referenceValue} placeholder={`约 5 ${unit}`} onChange={(event) => setReferenceValue(event.target.value)}/></div></div><div className="create-rule-note"><b>默认圈子规则</b><p>一方记录即入账；修改需对方同意；可以先接受帮助。</p></div></>}
 
       {step === 3 && <><div className="create-heading"><span>STEP 03 · GOVERNANCE</span><h2>成员与边界</h2></div><span className="form-label">新成员怎么加入</span><div className="create-choice-row two"><button className={joining === "approval" ? "active" : ""} onClick={() => setJoining("approval")}><b>管理员审批</b></button><button className={joining === "direct" ? "active" : ""} onClick={() => setJoining("direct")}><b>受邀直接加入</b></button></div><span className="form-label">谁能找到这个圈子</span><div className="create-choice-row two"><button className={discoverability === "invite_only" ? "active" : ""} onClick={() => setDiscoverability("invite_only")}><b>仅凭邀请访问</b></button><button className={discoverability === "public" ? "active" : ""} onClick={() => setDiscoverability("public")}><b>在发现页公开展示</b></button></div><label className="typing-box"><span>圈子约定（一行一条，最多 10 条）</span><textarea rows={5} value={rules} onChange={(event) => setRules(event.target.value)} placeholder={"可以开口，也可以拒绝\n敏感互助可以不记录\n成员可以随时暂停或退出"}/><small className={ruleError ? "field-count over" : "field-count"}>{ruleList.length} / 10</small></label></>}
 
@@ -1707,7 +1717,7 @@ function PostSheet({ post, contactRequested, onProfile, onShare, onNotice, onClo
   const otherListing = post.source === "listing" && post.memberId !== activeDb.currentMemberId;
   const shareable = canSharePost(post);
   async function copyContact() {
-    try { await navigator.clipboard.writeText(author.wechat || author.handle); onNotice("已复制联系方式"); }
+    try { if (!author.wechat) return; await navigator.clipboard.writeText(author.wechat); onNotice("已复制联系方式"); }
     catch { onNotice("复制失败，请手动复制"); }
   }
   const circle = circleById(post.circleIds[0]) ?? EMPTY_CIRCLE;
@@ -1727,7 +1737,7 @@ function PostSheet({ post, contactRequested, onProfile, onShare, onNotice, onClo
     const card = activeDb.goodCards.find((item) => item.id === post.sourceId)!;
     details.push({ label: "写下日期", value: card.date }, { label: "可见范围", value: card.visibility === "cross-circle" ? "跨圈公开" : "接收者已隐藏" }, { label: "余额", value: "不变" });
   }
-  return <Modal onClose={onClose} label="动态详情"><SheetHeading eyebrow={post.badge} title={post.person} description={post.caption} color={post.color} visual={<Character member={post.memberId ? author : undefined} text={post.memberId ? undefined : post.avatar} color={post.color} variant={post.avatarVariant} small/>}/><div className={`post-detail detail-${post.color}`}><p className="post-detail-copy">{post.text}</p></div><div className="detail-meta">{details.map((detail) => <div key={detail.label}><span>{detail.label}</span><b>{detail.value}</b></div>)}</div>{otherListing && contact && <div className="contact-reveal post-contact"><span>{author.wechat ? "联系方式" : "账号"}</span><b>{author.wechat || author.handle}</b></div>}<div className={`sheet-actions ${!otherListing && !shareable ? "sheet-actions-single" : ""}`}>{post.memberId && post.memberId !== activeDb.currentMemberId ? <button className="secondary-button" onClick={onProfile}>成员主页</button> : <button className="secondary-button" onClick={onClose}>关闭</button>}{otherListing ? <button className="primary-button" onClick={contact ? copyContact : () => setContact(true)}>{contact ? "复制联系方式" : `联系${author.name}`}</button> : shareable ? <button className="primary-button" onClick={onShare}>{post.source === "card" ? "分享这件好人好事" : "分享这条内容"}</button> : null}</div></Modal>;
+  return <Modal onClose={onClose} label="动态详情"><SheetHeading eyebrow={post.badge} title={post.person} description={post.caption} color={post.color} visual={<Character member={post.memberId ? author : undefined} text={post.memberId ? undefined : post.avatar} color={post.color} variant={post.avatarVariant} small/>}/><div className={`post-detail detail-${post.color}`}><p className="post-detail-copy">{post.text}</p></div><div className="detail-meta">{details.map((detail) => <div key={detail.label}><span>{detail.label}</span><b>{detail.value}</b></div>)}</div>{otherListing && contact && <div className="contact-reveal post-contact"><span>联系方式</span><b>{author.wechat || "未填写"}</b></div>}<div className={`sheet-actions ${!otherListing && !shareable ? "sheet-actions-single" : ""}`}>{post.memberId && post.memberId !== activeDb.currentMemberId ? <button className="secondary-button" onClick={onProfile}>成员主页</button> : <button className="secondary-button" onClick={onClose}>关闭</button>}{otherListing ? <button className="primary-button" disabled={contact && !author.wechat} onClick={contact ? copyContact : () => setContact(true)}>{contact ? (author.wechat ? "复制联系方式" : "未填写") : `联系${author.name}`}</button> : shareable ? <button className="primary-button" onClick={onShare}>{post.source === "card" ? "分享这件好人好事" : "分享这条内容"}</button> : null}</div></Modal>;
 }
 
 function NotificationsSheet({ notifications, onClose, onOpen }: { notifications: AppDatabase["notifications"]; onClose: () => void; onOpen: (destination: NotificationDestination, circleId?: string, recordId?: string) => void }) {
