@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import QRCode from "qrcode";
 import type { AbstractAvatarVariant, AvatarVariant, Circle, Color, DiscoverableCircle, GoodCard, JoinRequest, Listing, Member, Revision, Transaction } from "./types";
+import { composeDraftKey, readComposeDraft, writeComposeDraft, clearComposeDraft } from "./lib/compose-draft";
 import { listingDisplayCircleIds } from "./lib/listing-scope";
 import { parseFaceAvatar } from "./lib/avatar";
 import { parsePartnerAvatar } from "./lib/partner-avatar";
@@ -41,6 +42,10 @@ type Post = {
   source: "listing" | "card" | "transaction";
   sourceId: string;
 };
+
+function GenderSymbol({ member }: { member?: Member }) {
+  return member?.gender ? <span className="gender-symbol" aria-label={member.gender === "male" ? "男" : "女"}> {member.gender === "male" ? "♂" : "♀"}</span> : null;
+}
 
 function canSharePost(post: Post): boolean {
   if (post.source === "listing") {
@@ -694,6 +699,7 @@ export default function Home() {
     if (!response.ok) throw new Error(result.error || "保存失败");
     // Close first: the entry is already saved, and leaving the draft up with a
     // live 确认发布 button is exactly how you get two identical ledger entries.
+    clearComposeDraft(composeDraftKey(currentMemberId, input.intent));
     setComposer(false);
     await syncAfterWrite();
     if (result.id && (input.intent === "need" || input.intent === "offer")) setPublishedShare({ source: "listing", id: result.id });
@@ -754,7 +760,7 @@ export default function Home() {
       <div className="world-rule"><b>可以问，<br/>也可以拒绝。</b><span>NO PRESSURE · NO RANKING</span></div>
     </aside>
 
-    {composer && <ComposerSheet circleId={view === "me" || view === "profile" ? profileComposerCircleId : activeCircle.id} initialOtherId={composerOtherId} intent={intent} setIntent={setIntent} onClose={() => setComposer(false)} onSubmit={submitCompose} onNotice={flash}/>}
+    {composer && <ComposerSheet key={`${currentMemberId}:${intent}`} circleId={view === "me" || view === "profile" ? profileComposerCircleId : activeCircle.id} initialOtherId={composerOtherId} intent={intent} setIntent={setIntent} onClose={() => setComposer(false)} onSubmit={submitCompose} onNotice={flash}/>}
     {overlay === "share" && <ShareSheet shareUrl={typeof window === "undefined" ? "" : `${window.location.origin}/?profile=${encodeURIComponent(currentMemberId)}`} onClose={closeOverlay} onNotice={flash} onCopy={async () => {
       const shareUrl=`${location.origin}/?profile=${encodeURIComponent(currentMemberId)}`;
       try { await navigator.clipboard.writeText(shareUrl); flash(isLocalUrl(shareUrl) ? "已复制本地测试链接，只能在这台电脑打开" : "个人档案链接已复制，可以发到微信群"); }
@@ -787,6 +793,7 @@ function AccountStartView({ member, openCircles, pendingCircles, onSaved, onJoin
   const [name,setName]=useState(member.name);
   const [bio,setBio]=useState(member.bio);
   const [wechat,setWechat]=useState(member.wechat);
+  const [gender,setGender]=useState<Member["gender"]>(member.gender ?? null);
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState("");
   const [saved,setSaved]=useState(false);
@@ -798,9 +805,14 @@ function AccountStartView({ member, openCircles, pendingCircles, onSaved, onJoin
     try {
       if (!name.trim()) { setError("请先填写怎么称呼你"); return; }
       setSaving(true); setError("");
-      const response=await fetch("/api/profile",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({name:name.trim(),bio:bio.trim(),wechat:wechat.trim()})});
+      const response=await fetch("/api/profile",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({name:name.trim(),bio:bio.trim(),wechat:wechat.trim(),gender})});
       const result=await response.json() as {error?:string};
       if(!response.ok) throw new Error(result.error||"保存失败");
+      const checked = await fetch("/api/bootstrap", { cache: "no-store" });
+      if (!checked.ok) throw new Error("资料已提交，暂时无法核对性别是否保存。请刷新确认。");
+      const world = await checked.json() as AppDatabase;
+      if ((world.members.find((item) => item.id === member.id)?.gender ?? null) !== gender)
+        throw new Error("性别未保存，后端尚未支持此字段。请保留选择，稍后重试。");
       setSaved(true);
       await onSaved();
     } catch(error) {
@@ -817,6 +829,7 @@ function AccountStartView({ member, openCircles, pendingCircles, onSaved, onJoin
     <p>这里只记录你愿意公开的社区身份。真实协商仍然发生在微信或线下。</p>
     <div className="account-form">
       <label><span>怎么称呼你</span><input value={name} maxLength={40} onChange={(event)=>edit(setName)(event.target.value)} placeholder="昵称"/></label>
+      <label><span>性别</span><select value={gender ?? ""} onChange={(event) => edit(setGender)(event.target.value === "male" ? "male" : event.target.value === "female" ? "female" : null)}><option value="">不显示</option><option value="male">男 ♂</option><option value="female">女 ♀</option></select></label>
       <label><span>一句话介绍（可稍后填写）</span><input value={bio} maxLength={80} onChange={(event)=>edit(setBio)(event.target.value)} placeholder="例如：喜欢把坏掉的东西拆开"/></label>
       <label><span>联系方式 / 微信号（可稍后填写）</span><input value={wechat} maxLength={60} onChange={(event)=>edit(setWechat)(event.target.value)} placeholder="只对同圈成员显示"/></label>
     </div>
@@ -916,14 +929,14 @@ function CircleView({ circle, account, posts: circlePosts, visibleTradeCount, op
       : <p className="soft-note">{isOwner ? "还没有互助参考。去圈子设置添加。" : "还没有互助参考。"}</p>}
     <SectionTitle eyebrow="PEOPLE" title="最近活跃的成员" action={pendingCount > 0 ? `全部成员 · ${pendingCount} 待审` : "全部成员"} onAction={onMembers}/>
     {pendingCount > 0 && <button className="pending-banner" onClick={onMembers}><b>{pendingCount} 个人在等你放行</b><span>他们通过邀请或发现页申请加入，通过后才算正式成员。</span><strong>去处理 →</strong></button>}
-    <div className="member-row">{circle.memberIds.slice(0,4).map((id) => memberById(id)).filter(Boolean).map((member) => <button key={member.id} onClick={() => onProfile(member.id)}><Character member={member} small/><b>{member.name}</b><small>{member.handle}</small></button>)}</div>
+    <div className="member-row">{circle.memberIds.slice(0,4).map((id) => memberById(id)).filter(Boolean).map((member) => <button key={member.id} onClick={() => onProfile(member.id)}><Character member={member} small/><b>{member.name}<GenderSymbol member={member}/></b><small>{member.handle}<GenderSymbol member={member}/></small></button>)}</div>
     <div className="circle-feed"><SectionTitle eyebrow={`${circlePosts.length} EVENTS IN THIS CIRCLE`} title={`${circle.name}动态`}/><FeedList posts={circlePosts} onProfile={onProfile} onShare={onShare} onPost={onPost}/></div>
     <section className="circle-explore"><SectionTitle eyebrow="MORE CIRCLES" title="其他可加入的圈子"/><p>先看看介绍，再决定是否申请加入。</p>{openCircles.slice(0, 2).map((item) => <button key={item.id} className="circle-explore-preview" onClick={() => onPreview(item.id)}><CircleGlyph icon={item.short} seed={item.id} size="small"/><span><b>{item.name}</b><small>{item.tagline || `${item.members} 位成员`}</small></span><strong>看介绍 →</strong></button>)}<button className="circle-explore-more" onClick={onDiscover}>发现更多圈子 →</button></section></>;
 }
 
 function FeedList({ posts: list, onProfile, onShare, onPost }: { posts: Post[]; onProfile: (id?: string) => void; onShare: (id: string) => void; onPost: (id: string, contact?: boolean) => void }) {
   if (list.length === 0) return <div className="feed-empty"><b>暂时没有动态</b></div>;
-  return <div className="feed-list">{list.map((post) => <article key={post.id} className={`feed-card feed-${post.kind}`}><header><button className="feed-person" onClick={() => post.memberId ? onProfile(post.memberId) : onPost(post.id)}><Character member={post.memberId ? memberById(post.memberId) : undefined} text={post.memberId ? undefined : post.avatar} color={post.color} variant={post.avatarVariant} small/><span><b>{post.person}</b><small>{post.caption}</small></span></button><Pill color={post.color}>{post.badge}</Pill></header><button className="feed-open" onClick={() => onPost(post.id)}><span className="feed-text">{post.text}</span></button><footer><span>{post.meta}</span><span>{post.source === "listing" && post.memberId !== activeDb.currentMemberId ? <button onClick={() => onPost(post.id, true)}>联系{post.person} →</button> : <><button onClick={() => onPost(post.id)}>详情</button>{canSharePost(post) && <button onClick={() => onShare(post.id)}>分享 ↗</button>}</>}</span></footer></article>)}</div>;
+  return <div className="feed-list">{list.map((post) => <article key={post.id} className={`feed-card feed-${post.kind}`}><header><button className="feed-person" onClick={() => post.memberId ? onProfile(post.memberId) : onPost(post.id)}><Character member={post.memberId ? memberById(post.memberId) : undefined} text={post.memberId ? undefined : post.avatar} color={post.color} variant={post.avatarVariant} small/><span><b>{post.person}<GenderSymbol member={post.memberId ? memberById(post.memberId) : undefined}/></b><small>{post.caption}</small></span></button><Pill color={post.color}>{post.badge}</Pill></header><button className="feed-open" onClick={() => onPost(post.id)}><span className="feed-text">{post.text}</span></button><footer><span>{post.meta}</span><span>{post.source === "listing" && post.memberId !== activeDb.currentMemberId ? <button onClick={() => onPost(post.id, true)}>联系{post.person} →</button> : <><button onClick={() => onPost(post.id)}>详情</button>{canSharePost(post) && <button onClick={() => onShare(post.id)}>分享 ↗</button>}</>}</span></footer></article>)}</div>;
 }
 
 function Modal({ children, onClose, label, wide = false, className = "" }: { children: React.ReactNode; onClose: () => void; label: string; wide?: boolean; className?: string }) {
@@ -969,26 +982,32 @@ function SheetHeading({ eyebrow, title, description, meta, color = "cream", visu
 // the fields loop-backend stores, review the draft, publish. (The natural-
 // language "泡泡助手" path is not wired up — see docs; nothing here calls an LLM.)
 function ComposerSheet({ circleId, initialOtherId, intent, setIntent, onClose, onSubmit, onNotice }: { circleId: string; initialOtherId?: string; intent: ComposerType; setIntent: (intent: ComposerType) => void; onClose: () => void; onSubmit: (input: ComposeInput) => Promise<void>; onNotice: (message: string) => void }) {
+  const draftKey = composeDraftKey(activeDb.currentMemberId, intent);
+  const [draft] = useState(() => readComposeDraft(draftKey));
   const [review, setReview] = useState<{ input: ComposeInput; label: string; description: string; footer: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
   // record / card
-  const [otherId, setOtherId] = useState(initialOtherId ?? "");
-  const [direction, setDirection] = useState<"received" | "given">("received");
-  const [amount, setAmount] = useState("");
-  const [story, setStory] = useState("");
-  const [recordVisibility, setRecordVisibility] = useState<"public" | "mystery">("public");
+  const [otherId, setOtherId] = useState(draft.otherId ?? initialOtherId ?? "");
+  const [direction, setDirection] = useState<"received" | "given">(draft.direction ?? "received");
+  const [amount, setAmount] = useState(draft.amount ?? "");
+  const [story, setStory] = useState(draft.story ?? "");
+  const [recordVisibility, setRecordVisibility] = useState<"public" | "mystery">(draft.recordVisibility ?? "public");
 
   // need / offer
-  const [listingDescription, setListingDescription] = useState("");
-  const [reference, setReference] = useState("");
-  const [listingCircleIds, setListingCircleIds] = useState<string[]>(circleId ? [circleId] : []);
-  const [crossCircle, setCrossCircle] = useState(false);
+  const [listingDescription, setListingDescription] = useState(draft.listingDescription ?? "");
+  const [reference, setReference] = useState(draft.reference ?? "");
+  const [listingCircleIds, setListingCircleIds] = useState<string[]>(draft.listingCircleIds ?? (circleId ? [circleId] : []));
+  const [crossCircle, setCrossCircle] = useState(draft.crossCircle ?? false);
 
   const myCircles = circles.filter((item) => memberById(activeDb.currentMemberId).circleIds.includes(item.id) && (!initialOtherId || intent === "need" || intent === "offer" || memberById(initialOtherId).circleIds.includes(item.id)));
   // `circleId` is whatever tab is open, which is `circles[0]` before the user
   // has picked one — so track the target explicitly and show it in the form.
-  const [recordCircleId, setRecordCircleId] = useState(circleId || myCircles[0]?.id || "");
+  const [recordCircleId, setRecordCircleId] = useState(draft.recordCircleId ?? (circleId || myCircles[0]?.id || ""));
+  useEffect(() => {
+    writeComposeDraft(draftKey, { otherId, direction, amount, story, recordVisibility, listingDescription, reference, listingCircleIds, crossCircle, recordCircleId });
+  }, [draftKey, otherId, direction, amount, story, recordVisibility, listingDescription, reference, listingCircleIds, crossCircle, recordCircleId]);
+
   const circle = circleById(recordCircleId) ?? EMPTY_CIRCLE;
   const others = circle.memberIds.map((mid) => memberById(mid)).filter((m) => m && m.id !== activeDb.currentMemberId);
   const isLedger = intent === "record";
@@ -1380,7 +1399,7 @@ function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, onNotic
   const transactionStatus = { pending: "待确认", confirmed: "已入账", corrected: "已修改", rejected: "已撤销" } as const;
 
   return <><section className="profile-page" aria-label={`${member.name}的档案`}>
-    <header className="profile-page-heading"><Character member={member}/><div className="profile-page-identity"><small>{isSelf ? "我的档案" : "成员档案"} · {member.handle}</small><h2>{member.name}</h2><p>{member.bio || "还没有填写介绍"}</p></div>
+    <header className="profile-page-heading"><Character member={member}/><div className="profile-page-identity"><small>{isSelf ? "我的档案" : "成员档案"} · {member.handle}<GenderSymbol member={member}/></small><h2>{member.name}<GenderSymbol member={member}/></h2><p>{member.bio || "还没有填写介绍"}</p></div>
       {isSelf ? <div className="profile-page-actions"><button onClick={onEdit}>编辑资料</button><button onClick={onShare}>分享档案</button></div> : <div className="profile-page-actions"><button onClick={onRecord} disabled={visibleCircleIds.length === 0}>记一笔</button>{contact ? <div className="contact-reveal"><span>联系方式</span><b>{member.wechat || "未填写"}</b>{member.wechat && <button onClick={async () => { try { await navigator.clipboard.writeText(member.wechat); onNotice("已复制"); } catch { onNotice("复制失败，请手动复制"); } }}>复制</button>}</div> : <button onClick={() => setContact(true)}>联系{member.name}</button>}</div>}
     </header>
     {isSelf && <div className="profile-publish-actions"><button onClick={() => onPublish("need")}><Pill color="pink">我想要</Pill><b>发布需要 ＋</b></button><button onClick={() => onPublish("offer")}><Pill color="green">我可以给</Pill><b>发布提供 ＋</b></button></div>}
@@ -1553,8 +1572,8 @@ function MembersSheet({ circle, requests, isOwner, onProfile, onInvite, onClose,
     if (ok) setMemberAction(null);
   }
 
-  return <><Modal onClose={onClose} label={`${circle.name}全部成员`} wide><SheetHeading eyebrow={`${circle.members} 位成员`} title={`${circle.name}的成员`} color={circle.color}/>{requests.length > 0 && <section className="request-list"><SectionTitle title={`${requests.length} 个人在等你放行`}/>{requests.map((request) => <article key={request.member.id}><Character member={request.member}/><div><b>{request.member.name}</b><small>{request.member.handle} · {request.requestedAt}</small>{request.note && <p>“{request.note}”</p>}</div><div className="request-actions"><button className="primary-button" disabled={busy} onClick={() => run(() => onResolve(circle.id, request.member.id, "approve"))}>通过</button><button className="secondary-button" disabled={busy} onClick={() => run(() => onResolve(circle.id, request.member.id, "decline"))}>谢绝</button></div></article>)}</section>}<div className="member-list">{circleMembers.map((member,index) => { const account = accountFor(member.id, circle.id); const offer = activeDb.listings.find((listing) => listing.memberId === member.id && listing.type === "offer" && listing.status === "active"); return <button key={member.id || `unknown-${index}`} disabled={!isKnown(member)} onClick={() => onProfile(member.id)}><span className="member-index">0{index+1}</span><Character member={member}/><span><b>{member.name}</b><small>{member.handle}</small><p>{offer?.detail || offer?.title || member.bio}</p></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div><button className="primary-button" onClick={onInvite}>＋ 邀请成员</button>
-    {isOwner && others.length > 0 && <section className="transfer-owner"><SectionTitle title="转让圈主"/><p className="soft-note">对方将负责审批与设置。</p><div className="transfer-list">{others.map((member) => <button key={member.id} disabled={actionBusy} onClick={() => setMemberAction({ kind: "transfer", member })}><Character member={member} small/><span><b>{member.name}</b><small>{member.handle}</small></span><strong>转让 →</strong></button>)}</div></section>}
+  return <><Modal onClose={onClose} label={`${circle.name}全部成员`} wide><SheetHeading eyebrow={`${circle.members} 位成员`} title={`${circle.name}的成员`} color={circle.color}/>{requests.length > 0 && <section className="request-list"><SectionTitle title={`${requests.length} 个人在等你放行`}/>{requests.map((request) => <article key={request.member.id}><Character member={request.member}/><div><b>{request.member.name}<GenderSymbol member={request.member}/></b><small>{request.member.handle} · {request.requestedAt}</small>{request.note && <p>“{request.note}”</p>}</div><div className="request-actions"><button className="primary-button" disabled={busy} onClick={() => run(() => onResolve(circle.id, request.member.id, "approve"))}>通过</button><button className="secondary-button" disabled={busy} onClick={() => run(() => onResolve(circle.id, request.member.id, "decline"))}>谢绝</button></div></article>)}</section>}<div className="member-list">{circleMembers.map((member,index) => { const account = accountFor(member.id, circle.id); const offer = activeDb.listings.find((listing) => listing.memberId === member.id && listing.type === "offer" && listing.status === "active"); return <button key={member.id || `unknown-${index}`} disabled={!isKnown(member)} onClick={() => onProfile(member.id)}><span className="member-index">0{index+1}</span><Character member={member}/><span><b>{member.name}<GenderSymbol member={member}/></b><small>{member.handle}<GenderSymbol member={member}/></small><p>{offer?.detail || offer?.title || member.bio}</p></span><strong>{account.balance > 0 ? "+" : ""}{account.balance}</strong></button>; })}</div><button className="primary-button" onClick={onInvite}>＋ 邀请成员</button>
+    {isOwner && others.length > 0 && <section className="transfer-owner"><SectionTitle title="转让圈主"/><p className="soft-note">对方将负责审批与设置。</p><div className="transfer-list">{others.map((member) => <button key={member.id} disabled={actionBusy} onClick={() => setMemberAction({ kind: "transfer", member })}><Character member={member} small/><span><b>{member.name}<GenderSymbol member={member}/></b><small>{member.handle}<GenderSymbol member={member}/></small></span><strong>转让 →</strong></button>)}</div></section>}
     <section className="leave-circle"><SectionTitle title="退出圈子"/><p className="soft-note">{blocker || "历史记录保留；余额归零；发布内容关闭。"}</p><button className="text-link danger" disabled={blocker !== "" || actionBusy} onClick={() => setMemberAction({ kind: "leave" })}>退出 {circle.name}</button></section></Modal>
     {memberAction && <Modal onClose={() => { if (!actionBusy) setMemberAction(null); }} label={memberAction.kind === "transfer" ? "确认转让圈主" : "确认退出圈子"}>
       <SheetHeading eyebrow={memberAction.kind === "transfer" ? "转让圈主" : "退出圈子"} title={memberAction.kind === "transfer" ? `转让给 ${memberAction.member.name}？` : `退出 ${circle.name}？`} description={memberAction.kind === "transfer" ? "对方将接管审批和设置；你仍是普通成员。" : "发布内容将关闭，历史记录保留。"} color={memberAction.kind === "transfer" ? "blue" : "coral"}/>
@@ -1893,6 +1912,7 @@ function EditProfileSheet({ member, onClose, onSaved, onNotice }: { member: Memb
   const [name, setName] = useState(member.name);
   const [bio, setBio] = useState(member.bio);
   const [wechat, setWechat] = useState(member.wechat);
+  const [gender, setGender] = useState<Member["gender"]>(member.gender ?? null);
   const [avatar, setAvatar] = useState<AvatarVariant>(member.avatar);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1902,9 +1922,14 @@ function EditProfileSheet({ member, onClose, onSaved, onNotice }: { member: Memb
       if (!name.trim()) { setError("显示名称不能为空"); return; }
       setSaving(true);
       setError("");
-      const response = await fetch("/api/profile", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: name.trim(), bio: bio.trim(), wechat: wechat.trim(), avatar }) });
+      const response = await fetch("/api/profile", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: name.trim(), bio: bio.trim(), wechat: wechat.trim(), avatar, gender }) });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "保存失败");
+      const checked = await fetch("/api/bootstrap", { cache: "no-store" });
+      if (!checked.ok) throw new Error("资料已提交，暂时无法核对性别是否保存。请刷新确认。");
+      const world = await checked.json() as AppDatabase;
+      if ((world.members.find((item) => item.id === member.id)?.gender ?? null) !== gender)
+        throw new Error("性别保存结果不一致，请保留选择并稍后重试。");
       await onSaved();
       onClose();
       onNotice("个人资料已保存");
@@ -1916,6 +1941,7 @@ function EditProfileSheet({ member, onClose, onSaved, onNotice }: { member: Memb
     <SheetHeading eyebrow={member.handle} title="编辑资料" color="cream"/>
     <div className="manual-form">
       <label><span>显示名称</span><input value={name} maxLength={40} onChange={(e) => setName(e.target.value)}/></label>
+      <label><span>性别</span><select value={gender ?? ""} onChange={(event) => setGender(event.target.value === "male" ? "male" : event.target.value === "female" ? "female" : null)}><option value="">不显示</option><option value="male">男 ♂</option><option value="female">女 ♀</option></select></label>
       <label><span>一句话介绍</span><input value={bio} maxLength={80} onChange={(e) => setBio(e.target.value)} placeholder="例如：喜欢把坏掉的东西拆开"/></label>
       <label><span>联系方式 / 微信号（同圈可见）</span><input value={wechat} maxLength={60} onChange={(e) => setWechat(e.target.value)}/></label>
     </div>

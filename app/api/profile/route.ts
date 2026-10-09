@@ -10,22 +10,26 @@ export async function PUT(request: Request) {
     bio?: string;
     wechat?: string;
     avatar?: string;
+    gender?: "male" | "female" | null;
   };
   const name = input.name?.trim();
   if (!name || name.length > 40) return Response.json({ error: "请填写昵称。" }, { status: 400 });
   if ((input.bio?.trim().length ?? 0) > 80)
     return Response.json({ error: "简介最多 80 字。" }, { status: 400 });
+  if (input.gender !== undefined && input.gender !== null && input.gender !== "male" && input.gender !== "female")
+    return Response.json({ error: "请选择有效的性别。" }, { status: 400 });
   const avatar = isAvatarVariant(input.avatar) ? input.avatar : undefined;
 
   return withLoop(request, async (token, call) => {
     if (!token) return Response.json({ error: "未登录" }, { status: 401 });
 
-    const body: Record<string, string> = {
+    const body: Record<string, string | null> = {
       display_name: name,
       bio: input.bio?.trim() ?? "",
       wechat_contact: input.wechat?.trim() ?? "",
     };
     if (avatar) body.avatar = avatar;
+    if (input.gender !== undefined) body.gender = input.gender;
     const res = await call("/me", {
       method: "PATCH",
       body: JSON.stringify(body),

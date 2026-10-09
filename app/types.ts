@@ -21,6 +21,7 @@ export type Member = {
   id: string;
   /** loop `display_name` (falls back to `username`) */
   name: string;
+  gender?: "male" | "female" | null;
   /** first character of the name, for the avatar chip */
   initial: string;
   /** loop `handle`, e.g. `@ashu` */

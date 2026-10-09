@@ -180,3 +180,11 @@ test("revisions, discoverability, totals and opening balances map through", () =
   assert.equal(t.pendingRevision.kind, "revoke");
   assert.equal(t.pendingRevision.proposedById, OTHER);
 });
+
+test("gender survives bootstrap for other members and remains absent for legacy accounts", () => {
+  for (const gender of ["male", "female", null]) {
+    const db = toAppDatabase(bootstrap({ members: [{ ...account(OTHER, "b"), gender }] }));
+    assert.equal(db.members.find(m => m.id === OTHER).gender, gender);
+  }
+  assert.equal(toAppDatabase(bootstrap()).members.find(m => m.id === ME).gender, null);
+});

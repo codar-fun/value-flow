@@ -65,6 +65,7 @@ type LoopAccount = {
   bio: string | null;
   address: string | null;
   wechat_contact?: string | null;
+  gender?: "male" | "female" | null;
 };
 
 type LoopSettings = {
@@ -316,6 +317,7 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     avatar: avatarFor(a),
     bio: a.bio || "",
     wechat: a.wechat_contact || "",
+    gender: a.gender === "male" || a.gender === "female" ? a.gender : null,
     address: a.address || "",
     circleIds: circleIdsByMember.get(a.id) ?? [],
   });
