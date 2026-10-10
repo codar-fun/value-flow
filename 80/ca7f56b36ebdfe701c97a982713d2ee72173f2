@@ -1,0 +1,20 @@
+app/page.tsx
+  s_48a3d075bd0133::t_efc1b4e87e97c4 146-151
+  s_48a3d075bd0133::t_a9bf8fac636a10 1769-1770
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "80ca7f56b36ebdfe701c97a982713d2ee72173f2",
+  "prompts": {},
+  "sessions": {
+    "s_48a3d075bd0133": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb01a44c-eda1-4b04-97da-246e51ecce9e",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
