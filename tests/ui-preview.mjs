@@ -52,7 +52,7 @@ const server = http.createServer(async (req, res) => {
     } else if (/^\/api\/circles\/[^/]+\/preview/.test(req.url)) {
       result = { circle: visitorCircle(discoverableCircle), membership_status: null, can_apply: true };
     } else if (/^\/api\/invitations\/[^/]+\/preview/.test(req.url)) {
-      if (req.url.includes('invalid')) { status = 410; result = { error: '邀请不存在、已过期或已撤销。' }; }
+      if (req.url.includes('invalid')) { status = 410; result = { error: '邀请不可用，请重新获取。' }; }
       else result = { circle: visitorCircle(circles[0]), type: 'regular', expires_at: '2026-10-14T12:00:00Z', joins_as: 'pending', viewer_status: null, inviter: { display_name: '小禾' } };
     } else if (req.url.startsWith('/api/invitations?') && req.method === 'GET') result = { invitations: managedInvites };
     else if (req.url === '/api/invitations' && req.method === 'POST') {
