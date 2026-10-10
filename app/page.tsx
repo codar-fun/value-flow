@@ -143,7 +143,12 @@ function buildPosts(): Post[] {
     const receiver = activeDb.members.find((item) => item.id === transaction.receiverId);
     if (!hidden && (!provider || !receiver)) continue;
     const pending = transaction.status === "pending";
-    result.push({ id: postId, kind: hidden ? "mystery" : "trade", badge: hidden ? "神秘记录" : pending ? "待确认" : "互助完成", person: hidden ? "圈里发生了一次互助" : `${provider!.name} → ${receiver!.name}`, caption: hidden ? "身份与故事已隐藏" : pending ? "等待另一方确认" : transaction.visibility === "private" ? "仅当事人" : transaction.visibility === "mystery" ? "神秘记录 · 事情仅当事人可见" : "圈内公开", memberId: hidden ? undefined : provider!.id, avatar: hidden ? "?" : provider!.initial, avatarVariant: hidden ? "crop" : provider!.avatar, color: hidden ? "blue" : "yellow", text: hidden ? "参与者和故事选择了隐藏。" : transaction.story || transaction.title, meta: `${circle.name} · ${transaction.amount} ${circle.currency}`, circleIds: [circle.id], source: activity.source, sourceId: transaction.id });
+    // Either party can write the record, and the story is in the writer's own
+    // voice ("给我唱了一首歌"), so the card belongs to the writer, not to whoever
+    // happened to give. Older rows without a writer fall back to the giver.
+    const author = activeDb.members.find((item) => item.id === transaction.createdById) ?? provider;
+    const state = pending ? "等待另一方确认" : transaction.visibility === "private" ? "仅当事人" : transaction.visibility === "mystery" ? "神秘记录 · 事情仅当事人可见" : "圈内公开";
+    result.push({ id: postId, kind: hidden ? "mystery" : "trade", badge: hidden ? "神秘记录" : pending ? "待确认" : "互助完成", person: hidden ? "圈里发生了一次互助" : `${provider!.name} → ${receiver!.name}`, caption: hidden ? "身份与故事已隐藏" : `${author!.name} 记录 · ${state}`, memberId: hidden ? undefined : author!.id, avatar: hidden ? "?" : author!.initial, avatarVariant: hidden ? "crop" : author!.avatar, color: hidden ? "blue" : "yellow", text: hidden ? "参与者和故事选择了隐藏。" : transaction.story || transaction.title, meta: `${circle.name} · ${transaction.amount} ${circle.currency}`, circleIds: [circle.id], source: activity.source, sourceId: transaction.id });
   }
   return result;
 }
@@ -1761,6 +1766,8 @@ function PostSheet({ post, contactRequested, onProfile, onShare, onNotice, onClo
   } else if (post.source === "transaction") {
     const transaction = activeDb.transactions.find((item) => item.id === post.sourceId)!;
     const status = transaction.status === "confirmed" ? "已确认" : transaction.status === "corrected" ? "已更正" : transaction.status === "pending" ? "待对方确认" : "已撤销";
+    const writer = transaction.createdById ? activeDb.members.find((item) => item.id === transaction.createdById) : undefined;
+    if (writer) details.push({ label: "记录人", value: writer.name });
     details.push({ label: "记录时间", value: transaction.recordedAt }, { label: "社区货币与状态", value: `${transaction.amount} ${circle.currency} · ${status}` }, { label: "可见范围", value: transaction.visibility === "mystery" ? "圈内神秘记录" : transaction.visibility === "private" ? "仅当事人" : "圈内公开" });
   } else {
     const card = activeDb.goodCards.find((item) => item.id === post.sourceId)!;
