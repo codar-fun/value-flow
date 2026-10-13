@@ -89,8 +89,10 @@ function serialize({ name, value, maxAge }: Cookie): string {
 }
 
 export function attachCookies(response: Response, cookies: Cookie[]): Response {
-  for (const c of cookies) response.headers.append("set-cookie", serialize(c));
-  return response;
+  if (!cookies.length) return response;
+  const outgoing = new Response(response.body, { status: response.status, statusText: response.statusText, headers: new Headers(response.headers) });
+  for (const c of cookies) outgoing.headers.append("set-cookie", serialize(c));
+  return outgoing;
 }
 
 export function sessionCookies(refreshToken: string, accessToken: string, expiresIn: number): Cookie[] {
@@ -132,6 +134,7 @@ type Resolved = { session: LoopSession; cookies: Cookie[] };
 // concurrent requests routinely (the ?join= effect alongside a user action),
 // so collapse overlapping refreshes of one RT onto a single in-flight call.
 const inFlight = new Map<string, Promise<Resolved>>();
+const recentRefreshes = new Map<string, { until: number; result: Resolved }>();
 
 function describeFetchFailure(error: unknown): string {
   if (error instanceof Error) {
@@ -224,10 +227,26 @@ export async function ensureAccessToken(request: Request): Promise<Resolved> {
 
   // Both callers get the same new pair, so whichever Set-Cookie lands last
   // still leaves the browser holding a consistent, live session.
-  let pending = inFlight.get(rt);
+  return refreshOnce(rt);
+}
+
+function refreshOnce(rt: string): Promise<Resolved> {
+  const key = `${loopApiBase()}:${rt}`;
+  for (const [cachedKey, cached] of recentRefreshes) if (cached.until <= Date.now()) recentRefreshes.delete(cachedKey);
+  const cached = recentRefreshes.get(key);
+  if (cached) return Promise.resolve(cached.result);
+  let pending = inFlight.get(key);
   if (!pending) {
-    pending = refresh(rt).finally(() => inFlight.delete(rt));
-    inFlight.set(rt, pending);
+    pending = refresh(rt).then((result) => {
+      // A late sibling request may still carry the old, now consumed RT after
+      // the first request completed. Briefly reuse only a successful rotation.
+      if (result.session.outcome === "ok") {
+        if (recentRefreshes.size >= 256) recentRefreshes.delete(recentRefreshes.keys().next().value!);
+        recentRefreshes.set(key, { until: Date.now() + 5_000, result });
+      }
+      return result;
+    }).finally(() => inFlight.delete(key));
+    inFlight.set(key, pending);
   }
   return pending;
 }
@@ -246,7 +265,9 @@ export async function withLoop(
   request: Request,
   handler: (token: string | null, call: LoopCall, session: LoopSession) => Promise<Response>,
 ): Promise<Response> {
-  const { session, cookies } = await ensureAccessToken(request);
+  const resolved = await ensureAccessToken(request);
+  const session = resolved.session;
+  let cookies = resolved.cookies;
 
   // We could not confirm who the caller is. Hand back a retryable error
   // instead of an anonymous world: falling through to "signed out" here is
@@ -258,19 +279,36 @@ export async function withLoop(
     );
   }
 
-  const accessToken = session.accessToken;
+  let accessToken = session.accessToken;
+  let renewed = cookies.length > 0;
 
   const call: LoopCall = async (path, init = {}) => {
     try {
-      return await fetch(`${loopApiBase()}${path}`, {
+      const send = () => fetch(`${loopApiBase()}${path}`, {
         ...init,
         headers: {
-          "content-type": "application/json",
+          ...(init.body instanceof FormData ? {} : { "content-type": "application/json" }),
           ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
           ...(init.headers || {}),
         },
         signal: init.signal ?? AbortSignal.timeout(upstreamTimeoutMs()),
       });
+      let response = await send();
+      // A device clock or an upstream restart can invalidate AT before its
+      // cookie expires. Renew once on reads; never replay a business write.
+      if (response.status === 401 && accessToken && !renewed && (init.method ?? "GET").toUpperCase() === "GET") {
+        const rt = readCookie(request, RT);
+        if (rt) {
+          renewed = true;
+          const next = await refreshOnce(rt);
+          cookies = next.cookies;
+          if (next.session.outcome === "temporary") return Response.json({ error: "暂时无法确认登录状态，请稍后重试", code: "session_unavailable" }, { status: 503 });
+          if (next.session.outcome === "invalid") { session.outcome = "invalid"; return response; }
+          accessToken = next.session.accessToken;
+          response = await send();
+        }
+      }
+      return response;
     } catch {
       // Timeout or lost connection. For a write the server may already have
       // applied the change, so this is deliberately *not* phrased as "please

@@ -1,5 +1,5 @@
 import { anonymousDatabase, toAppDatabase, type LoopBootstrap } from "../../../db/runtime";
-import { attachCookies, clearedCookies, withLoop } from "@/app/lib/loop";
+import { withLoop } from "@/app/lib/loop";
 
 export const dynamic = "force-dynamic";
 
@@ -7,19 +7,13 @@ export const dynamic = "force-dynamic";
 // When not signed in, returns an empty world with session.authenticated=false
 // so the UI can render its sign-in prompt instead of erroring.
 export async function GET(request: Request) {
-  return withLoop(request, async (token, call) => {
+  return withLoop(request, async (token, call, session) => {
     if (!token) return Response.json(anonymousDatabase(), { headers: { "cache-control": "no-store" } });
 
     const res = await call("/bootstrap");
     if (!res.ok) {
-      // We held a token the backend now rejects: the session really is over,
-      // so drop the cookies instead of leaving a dead session around.
-      if (res.status === 401) {
-        return attachCookies(
-          Response.json(anonymousDatabase(), { headers: { "cache-control": "no-store" } }),
-          clearedCookies(),
-        );
-      }
+      if (res.status === 401 && session.outcome === "invalid")
+        return Response.json(anonymousDatabase(), { headers: { "cache-control": "no-store" } });
       return Response.json({ error: "数据加载失败" }, { status: 502, headers: { "cache-control": "no-store" } });
     }
 

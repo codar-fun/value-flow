@@ -178,8 +178,8 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // ── regression guards for bugs found walking the live site ──
   // The feed is derived from `db`; leaving it out of the deps froze the feed
   // after every mutation while the toast claimed success.
-  assert.match(page, /\}\), \[db, feedFilter, feedCircleId\]\)/);
-  assert.match(page, /\}\), \[db, discoverFilter, discoverCircleId\]\)/);
+  assert.match(page, /\}\), \[db, feedFilter, feedCircleId, searchQuery, searchTag\]\)/);
+  assert.match(page, /\}\), \[db, discoverFilter, discoverCircleId, searchQuery, searchTag\]\)/);
   // An unresolved id must not borrow a real person's name.
   assert.match(page, /UNKNOWN_MEMBER/);
   assert.doesNotMatch(page, /members\.find\(\(member\) => member\.id === id\) \?\? members\[0\]/);
@@ -237,7 +237,8 @@ test("keeps the confirmed product flows and visual language in source", async ()
   // Share posters can be saved as real PNG files with their QR code intact.
   assert.match(page, /savePosterImage/);
   assert.match(page, /toPng/);
-  assert.equal((page.match(/>保存图片</g) ?? []).length, 3);
+  // Post export now has a preparing/busy label and shares the full-height helper.
+  assert.match(page, /posterDataUrl/);
   // New accounts keep a stable illustrated character; profile editing can
   // save a real, composable face without replacing the backend identity.
   assert.doesNotMatch(page, /注册后默认使用圈圈伙伴，你也可以换一个/);

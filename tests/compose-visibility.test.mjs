@@ -9,7 +9,7 @@ export const calls = [];
 const withLoop = async (request, callback) => callback('fixture-token', async (path, options) => {
   calls.push({ path, body: JSON.parse(options.body) });
   return Response.json({ id: 'fixture-record' });
-});`);
+});`).replace('"@/app/lib/content-search"', JSON.stringify(new URL('../app/lib/content-search.ts', import.meta.url).href));
 const { POST, calls } = await import('data:text/javascript;base64,' + Buffer.from(stripTypeScriptTypes(source)).toString('base64'));
 const send = body => POST(new Request('http://localhost/api/records', { method: 'POST', body: JSON.stringify(body) }));
 const record = { intent: 'record', circleId: 'c', providerId: 'a', receiverId: 'b', amount: 5, story: 'Only the parties should see this in mystery mode.' };

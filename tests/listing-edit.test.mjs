@@ -8,7 +8,7 @@ export const calls = [];
 const withLoop = async (request, callback) => callback('fixture-token', async (path, options) => {
   calls.push({ path, body: JSON.parse(options.body) });
   return Response.json({ ok: true });
-});`);
+});`).replace('"@/app/lib/content-search"', JSON.stringify(new URL('../app/lib/content-search.ts', import.meta.url).href));
 const { PATCH, calls } = await import('data:text/javascript;base64,' + Buffer.from(stripTypeScriptTypes(source)).toString('base64'));
 const send = body => PATCH(new Request('http://localhost/api/listings/one', { method: 'PATCH', body: JSON.stringify(body) }), { params: Promise.resolve({ id: 'one' }) });
 

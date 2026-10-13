@@ -21,6 +21,8 @@ export type Member = {
   id: string;
   /** loop `display_name` (falls back to `username`) */
   name: string;
+  /** Whether a real display_name was provided (not the username fallback). */
+  hasNickname?: boolean;
   gender?: "male" | "female" | null;
   /** first character of the name, for the avatar chip */
   initial: string;
@@ -97,6 +99,7 @@ export type Listing = {
   time: string;
   reference: string;
   tags: string[];
+  imageIds?: string[];
   status: "active" | "paused" | "closed";
   createdAt: string;
   updatedAt: string;
@@ -110,6 +113,7 @@ export type GoodCard = {
   date: string;
   visibility: "cross-circle" | "hidden";
   circleId: string;
+  tags?: string[];
 };
 
 /** A proposed change to a posted record (since 2026-10): nothing changes until

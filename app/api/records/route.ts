@@ -1,4 +1,5 @@
 import { withLoop } from "@/app/lib/loop";
+import { normalizeTags } from "@/app/lib/content-search";
 
 // POST /api/records — the composer's single write endpoint. `intent` decides
 // which loop-backend endpoint the entry lands in; loop keeps them in three
@@ -25,6 +26,7 @@ export type ComposeInput =
       toId: string;
       story: string;
       visibility?: "cross-circle";
+      tags?: string[];
     }
   | {
       intent: "need" | "offer";
@@ -35,6 +37,7 @@ export type ComposeInput =
       visibility?: "circle" | "cross-circle";
       reference?: string;
       tags?: string[];
+      imageIds?: string[];
     };
 
 // The current UI has one text field. Keep the full text in story/detail and
@@ -47,6 +50,10 @@ function legacyTitle(description: string) {
 export async function POST(request: Request) {
   const input = (await request.json().catch(() => null)) as ComposeInput | null;
   if (!input?.intent) return Response.json({ error: "缺少内容" }, { status: 400 });
+  if (input.tags !== undefined && (!Array.isArray(input.tags) || input.tags.length > 12 || input.tags.some((tag) => typeof tag !== "string" || tag.length > 30)))
+    return Response.json({ error: "标签最多 12 个，每个最多 30 字。" }, { status: 400 });
+  if ((input.intent === "need" || input.intent === "offer") && input.imageIds !== undefined && (!Array.isArray(input.imageIds) || input.imageIds.length > 3 || input.imageIds.some((id) => typeof id !== "string" || !id || id.length > 200)))
+    return Response.json({ error: "图片最多 3 张，请重新选择。" }, { status: 400 });
 
   // Reject obsolete choices rather than silently making a private draft public.
   if (input.intent === "record" && input.visibility !== undefined && input.visibility !== "public" && input.visibility !== "mystery")
@@ -76,7 +83,7 @@ export async function POST(request: Request) {
           title: legacyTitle(description),
           story: description,
           visibility: input.visibility ?? "public",
-          tags: input.tags ?? [],
+          tags: normalizeTags(input.tags ?? []),
           idempotency_key: input.idempotencyKey,
         }),
       });
@@ -91,6 +98,7 @@ export async function POST(request: Request) {
           circle_id: input.circleId,
           story: input.story,
           visibility: "cross-circle",
+          tags: normalizeTags(input.tags ?? []),
         }),
       });
     } else {
@@ -108,7 +116,8 @@ export async function POST(request: Request) {
           circle_ids: input.circleIds,
           visibility: input.visibility ?? "circle",
           reference: input.reference ?? "",
-          tags: input.tags ?? [],
+          tags: normalizeTags(input.tags ?? []),
+          ...(input.imageIds?.length ? { image_ids: input.imageIds } : {}),
         }),
       });
     }

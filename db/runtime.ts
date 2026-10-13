@@ -148,6 +148,7 @@ export type LoopBootstrap = {
     time: string;
     reference: string;
     tags: string[];
+    image_ids?: string[];
     status: "active" | "paused" | "closed";
     created_at: string;
     updated_at?: string;
@@ -157,6 +158,7 @@ export type LoopBootstrap = {
     from_id: string;
     to_id: string;
     story: string | null;
+    tags?: string[];
     circle_id: string | null;
     visibility: string;
     created_at: string;
@@ -311,6 +313,7 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
   const toMember = (a: LoopAccount): Member => ({
     id: a.id,
     name: a.display_name || a.username || "成员",
+    hasNickname: Boolean(a.display_name?.trim()),
     initial: firstChar(a.display_name || a.username),
     handle: a.handle || "",
     color: colorFor(a.id),
@@ -358,6 +361,7 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     time: l.time,
     reference: l.reference,
     tags: l.tags,
+    imageIds: Array.isArray(l.image_ids) ? l.image_ids.filter((id) => typeof id === "string").slice(0, 3) : [],
     status: l.status,
     createdAt: formatDate(l.created_at),
     updatedAt: formatDate(l.updated_at || l.created_at),
@@ -371,6 +375,7 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
     date: formatDate(c.created_at),
     visibility: c.visibility === "cross-circle" || c.visibility === "public" ? "cross-circle" : "hidden",
     circleId: c.circle_id || "",
+    tags: c.tags ?? [],
   }));
 
   const transactions: Transaction[] = loop.records.map((r) => ({

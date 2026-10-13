@@ -45,6 +45,39 @@ function json(res, status, payload) {
 
 const NOW = Math.floor(Date.now() / 1000);
 
+test("a late sibling request reuses a completed rotation instead of spending the consumed RT", async () => {
+  const seen = await startStub((_req, res) => json(res, 200, { access_token: "late-access", refresh_token: "late-rt", expires_in: 900 }));
+  const { withLoop } = await import(loopUrl);
+  const first = await withLoop(expiredRequest("late-old-rt"), async (token) => Response.json({ token }));
+  const late = await withLoop(expiredRequest("late-old-rt"), async (token) => Response.json({ token }));
+  assert.equal((await first.json()).token, "late-access");
+  assert.equal((await late.json()).token, "late-access");
+  assert.equal(seen.length, 1);
+  assert.equal(cleared(late).length, 0);
+});
+
+test("a rejected live access token renews and retries a read once", async () => {
+  const seen = await startStub((req, res) => {
+    if (req.url.endsWith("/auth/refresh")) return json(res, 200, { access_token: "renewed-access", refresh_token: "renewed-rt", expires_in: 900 });
+    return req.headers.authorization === "Bearer renewed-access" ? json(res, 200, { ok: true }) : json(res, 401, { error: { code: "token_expired" } });
+  });
+  const { withLoop } = await import(loopUrl);
+  const response = await withLoop(liveRequest("rejected-access"), async (_token, call) => call("/bootstrap"));
+  assert.equal(response.status, 200);
+  assert.deepEqual(seen.map((call) => call.url), ["/api/bootstrap", "/api/auth/refresh", "/api/bootstrap"]);
+  assert.ok(cookies(response).some((cookie) => cookie.startsWith("loop_rt=renewed-rt")));
+});
+
+test("renewal failure after a rejected AT preserves cookies and writes are never replayed", async () => {
+  const seen = await startStub((req, res) => req.url.endsWith("/auth/refresh") ? json(res, 503, {}) : json(res, 401, { error: { code: "token_expired" } }));
+  const { withLoop } = await import(loopUrl);
+  const response = await withLoop(liveRequest("rejected-again"), async (_token, call) => call("/bootstrap"));
+  assert.equal(response.status, 503); assert.equal(cookies(response).length, 0);
+  const count = seen.length;
+  const write = await withLoop(liveRequest("rejected-write"), async (_token, call) => call("/records", { method: "POST", body: "{}" }));
+  assert.equal(write.status, 401); assert.equal(seen.length, count + 1);
+});
+
 // A request whose access token has just expired but that still holds a refresh
 // token — the case that used to log people out on any non-200.
 function expiredRequest(rt = "rt-1") {
