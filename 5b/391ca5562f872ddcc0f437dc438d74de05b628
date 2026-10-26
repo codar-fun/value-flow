@@ -1,0 +1,14 @@
+app/page.tsx
+  h_b053bf74bef223 364
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5b391ca5562f872ddcc0f437dc438d74de05b628",
+  "prompts": {},
+  "humans": {
+    "h_b053bf74bef223": {
+      "author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
