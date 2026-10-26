@@ -1,0 +1,36 @@
+app/api/auth/email-hint/route.ts
+  h_b053bf74bef223 1-17
+app/api/auth/email/bind/route.ts
+  h_b053bf74bef223 1-41
+app/auth/callback/route.ts
+  h_b053bf74bef223 1-103
+app/auth/juluo/route.ts
+  h_b053bf74bef223 1-41
+app/components/bind-email.tsx
+  h_b053bf74bef223 1-117
+app/globals.css
+  h_b053bf74bef223 728-730
+app/lib/juluo-oauth.ts
+  h_b053bf74bef223 1-64
+app/page.tsx
+  h_b053bf74bef223 21,269-281,300-308,364,436,585-596,852-865,868,906,947-948,955,957-962,1008,1389,1552-1553,2067,2106-2107
+db/runtime.ts
+  h_b053bf74bef223 37,69-70,472-476
+ginger.yml
+  h_b053bf74bef223 53
+tests/juluo-oauth.test.mjs
+  h_b053bf74bef223 1-30
+tests/runtime-mapping.test.mjs
+  h_b053bf74bef223 113-125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1a04bc6183b0f977fe336668c9d25414930b75af",
+  "prompts": {},
+  "humans": {
+    "h_b053bf74bef223": {
+      "author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
