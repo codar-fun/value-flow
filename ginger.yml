@@ -50,3 +50,4 @@ secrets:
   load: [.env.production]
   inject:
     - YATCH_TOKEN
+    - JULUO_OAUTH_CLIENT_ID

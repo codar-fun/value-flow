@@ -34,7 +34,7 @@ export type AppDatabase = {
   notifications: Notification[];
   unreadNotifications: number;
   settings: { publicCards: boolean; publicListings: boolean; keepHiddenPrivate: boolean };
-  session: { authenticated: boolean };
+  session: { authenticated: boolean; email?: string | null; phone?: string | null };
   currentMemberId: string;
 };
 
@@ -66,6 +66,8 @@ type LoopAccount = {
   address: string | null;
   wechat_contact?: string | null;
   gender?: "male" | "female" | null;
+  email?: string | null;
+  phone?: string | null;
 };
 
 type LoopSettings = {
@@ -467,7 +469,11 @@ export function toAppDatabase(loop: LoopBootstrap): AppDatabase {
       publicListings: loop.settings.public_listings,
       keepHiddenPrivate: loop.settings.keep_hidden_private,
     },
-    session: { authenticated: true },
+    session: {
+      authenticated: true,
+      email: loop.user.email ?? null,
+      phone: loop.user.phone ?? null,
+    },
     currentMemberId: loop.current_member_id,
   };
 }

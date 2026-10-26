@@ -18,6 +18,7 @@ import { FaceAvatarArtwork } from "./components/face-avatar";
 import { AbstractAvatarArtwork } from "./components/abstract-avatar";
 import { BrandGlyph, FlowIcon, CircleGlyph, NotificationIcon, NavIcon, CIRCLE_ICON_GROUPS, CIRCLE_ICON_LABELS, type CircleIconKey } from "./components/identity";
 import { toRevision, type AppDatabase, type LoopRevision } from "../db/runtime";
+import { BindEmail } from "./components/bind-email";
 import type { ComposeInput } from "./api/records/route";
 
 type View = "feed" | "discover" | "circle" | "me" | "profile" | "about" | "create";
@@ -265,6 +266,19 @@ function SectionTitle({ eyebrow, title, action, onAction }: { eyebrow?: string; 
   return <div className="section-title"><div>{eyebrow && <span>{eyebrow}</span>}<h2>{title}</h2></div>{action && <button onClick={onAction}>{action}<b>→</b></button>}</div>;
 }
 
+const JULUO_LOGIN_ERRORS: Record<string, string> = {
+  phone_required: "聚落账号需要有手机号才能登录流动圈",
+  identity_conflict: "这个聚落账号和手机号对应了两个流动圈账号，无法自动登录",
+  phone_conflict: "两个账号都有手机号，无法合并",
+  juluo_not_configured: "聚落登录暂未开放",
+  juluo_unavailable: "暂时联系不上聚落，请稍后再试",
+  juluo_rejected: "聚落没有接受这次登录",
+  invalid_redirect: "登录回调地址无效",
+  phone_unverified: "聚落手机号尚未验证",
+  invalid_phone: "手机号格式无效",
+  bad_request: "聚落登录没有完成，请重试",
+};
+
 function LoginGate({ onDone }: { onDone: () => Promise<void> }) {
   const [testUsers, setTestUsers] = useState<Array<{ key: string; label: string }>>([]);
   const [step, setStep] = useState<"email" | "code" | "profile">("email");
@@ -282,6 +296,15 @@ function LoginGate({ onDone }: { onDone: () => Promise<void> }) {
     const timer = setTimeout(() => setCooldown((n) => n - 1), 1000);
     return () => clearTimeout(timer);
   }, [cooldown]);
+
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("login_error");
+    if (!code) return;
+    setError(JULUO_LOGIN_ERRORS[code] || "聚落登录没有完成，请重试");
+    const url = new URL(window.location.href);
+    url.searchParams.delete("login_error");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -338,6 +361,7 @@ function LoginGate({ onDone }: { onDone: () => Promise<void> }) {
     <p>{step === "email" ? "输入邮箱，我们会发送一次性验证码。" : step === "code" ? `验证码已发送到 ${email}` : "昵称会显示在圈子里，账号 ID 用来准确查找。"}</p>
     {error && <p className="account-error" role="alert">{error}</p>}
     {step === "email" && <>
+      <button className="secondary-button join-juluo" type="button" onClick={() => { window.location.href = "/auth/juluo"; }}>用聚落账号登录</button>
       <div className="account-form"><label><span>邮箱</span><input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email"/></label></div>
       <button className="primary-button" onClick={requestCode} disabled={busy}>{busy ? "发送中…" : "发送验证码"}</button>
     </>}
@@ -409,6 +433,7 @@ export default function Home() {
   // A failed bootstrap used to fall through to the login gate, so a 502 looked
   // exactly like being signed out and asked people to re-enter an OTP.
   const [loadFailed, setLoadFailed] = useState(false);
+  const [emailBindOpen, setEmailBindOpen] = useState(false);
   const [createSession, setCreateSession] = useState(0);
   // Sheets opened from inside another sheet return there on close, instead of
   // dumping the user back to the feed.
@@ -556,6 +581,18 @@ export default function Home() {
       document.removeEventListener("visibilitychange", syncWhenActive);
     };
   }, [db.session.authenticated]);
+
+  // A phone login with no email asks once per tab, and again when 聚落 just
+  // handed back a verified address (`?bind_email=1`).
+  useEffect(() => {
+    if (!db.session.authenticated || !db.session.phone || db.session.email) {
+      setEmailBindOpen(false);
+      return;
+    }
+    const forced = new URLSearchParams(window.location.search).get("bind_email") === "1";
+    const dismissed = sessionStorage.getItem("flow-email-bind-dismissed") === currentMemberId;
+    setEmailBindOpen(forced || !dismissed);
+  }, [db.session.authenticated, db.session.phone, db.session.email, currentMemberId]);
 
   // After signing in from an invite (`/?join=<token>`, the invite page's
   // "先登录" link), go back to that invite's preview. Joining stays an explicit
@@ -812,10 +849,23 @@ export default function Home() {
     flash(input.intent === "record" ? "互助已入账，修改或撤销需对方同意" : input.intent === "card" ? "这件好事已记录在对方的跨圈主页" : "已经发布，可以分享这条内容");
   }
 
-  if (memberById(currentMemberId).hasNickname === false) return <AccountStartView member={memberById(currentMemberId)} openCircles={[]} pendingCircles={[]} onSaved={refreshData} onJoin={joinCircle} onWithdraw={withdrawRequest} onCreate={() => flash("请先保存昵称")} onLogout={logout}/>;
+  const askBind = Boolean(db.session.phone) && !db.session.email;
+  async function onEmailBound(merged: boolean) {
+    await syncAfterWrite();
+    flash(merged ? "已合并到当前账号" : "邮箱已绑定");
+  }
+  function dismissEmailBind() {
+    if (currentMemberId) sessionStorage.setItem("flow-email-bind-dismissed", currentMemberId);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("bind_email");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    setEmailBindOpen(false);
+  }
+
+  if (memberById(currentMemberId).hasNickname === false) return <AccountStartView member={memberById(currentMemberId)} askBind={askBind} onEmailBound={onEmailBound} openCircles={[]} pendingCircles={[]} onSaved={refreshData} onJoin={joinCircle} onWithdraw={withdrawRequest} onCreate={() => flash("请先保存昵称")} onLogout={logout}/>;
 
   if (circles.length === 0 && view !== "create" && sharedCircleIds.length === 0) {
-    return <>{loadFailed && <SessionRetryBar onRetry={retryLoad}/>}<AccountStartView member={memberById(currentMemberId)} openCircles={openCircles} pendingCircles={db.pendingCircles} onSaved={syncAfterWrite} onJoin={joinCircle} onWithdraw={withdrawRequest} onCreate={openCreateCircle} onLogout={logout}/></>;
+    return <>{loadFailed && <SessionRetryBar onRetry={retryLoad}/>}<AccountStartView member={memberById(currentMemberId)} askBind={askBind} onEmailBound={onEmailBound} openCircles={openCircles} pendingCircles={db.pendingCircles} onSaved={syncAfterWrite} onJoin={joinCircle} onWithdraw={withdrawRequest} onCreate={openCreateCircle} onLogout={logout}/></>;
   }
 
   return <AvatarNavigation.Provider value={openProfile}><main className="world-shell">
@@ -853,7 +903,7 @@ export default function Home() {
           {view === "feed" && <FeedView activeCircle={activeCircle} isAllCircles={feedCircleId === "all"} posts={feedPosts} filter={feedFilter} onCompose={() => openComposer()} onProfile={openProfile} onShare={openPostShare} onFilter={() => setOverlay("feedFilter")} onPost={openPost}/>}
           {view === "discover" && <DiscoverView posts={discoverPosts} filter={discoverFilter} setFilter={setDiscoverFilter} openCircles={openCircles} onPreview={(id) => { setPreviewCircleId(id); setOverlay("circlePreview"); }} onSpeak={openComposer} onProfile={openProfile} onShare={openPostShare} onPost={openPost}/>}
           {view === "circle" && <CircleView circle={activeCircle} account={activeAccount} posts={posts.filter((post) => post.circleIds.includes(activeCircle.id))} visibleTradeCount={db.transactions.filter((record) => record.circleId === activeCircle.id && (record.status === "confirmed" || record.status === "corrected")).length} openCircles={openCircles} isOwner={isCircleOwner} pendingCount={db.joinRequests.filter((r) => r.circleId === activeCircle.id).length} onProfile={openProfile} onShare={openPostShare} onPost={openPost} onRules={() => setOverlay("rules")} onMembers={() => setOverlay("members")} onInvite={() => setOverlay("invite")} onSettings={() => setOverlay("circleSettings")} onDiscover={() => { navigate("discover"); setDiscoverCircleId(""); setDiscoverFilter("circles"); }} onPreview={(id) => { setPreviewCircleId(id); setOverlay("circlePreview"); }} onCreate={openCreateCircle}/>}
-          {view === "me" && <ProfilePage key={`${currentMemberId}-${profileTab}`} member={memberById(currentMemberId)} circleScopeId={profileCircleId} initialTab={profileTab} focusRecordId={focusRecordId} onNotice={flash} onChanged={syncAfterWrite} onSelectCircle={(id) => selectCircle(id)} onProfile={openProfile} onTabChange={setProfileTab} onShareItem={openArchiveShare} onPublish={openComposer} onEdit={() => setOverlay("editProfile")} onShare={() => setOverlay("share")} onRecord={() => openComposer("record")} onPreview={() => {}}/>}
+          {view === "me" && <ProfilePage key={`${currentMemberId}-${profileTab}`} member={memberById(currentMemberId)} email={db.session.email ?? null} phone={db.session.phone ?? null} circleScopeId={profileCircleId} initialTab={profileTab} focusRecordId={focusRecordId} onNotice={flash} onChanged={syncAfterWrite} onSelectCircle={(id) => selectCircle(id)} onProfile={openProfile} onTabChange={setProfileTab} onShareItem={openArchiveShare} onPublish={openComposer} onEdit={() => setOverlay("editProfile")} onShare={() => setOverlay("share")} onRecord={() => openComposer("record")} onPreview={() => {}}/>}
           {view === "profile" && selectedMember.id && <ProfilePage key={`${selectedMember.id}-${profileTab}`} member={selectedMember} circleScopeId={profileCircleId} initialTab={profileTab} focusRecordId={null} onNotice={flash} onChanged={syncAfterWrite} onSelectCircle={(id) => selectCircle(id)} onProfile={openProfile} onTabChange={setProfileTab} onShareItem={openArchiveShare} onPublish={openComposer} onEdit={() => {}} onShare={() => {}} onRecord={() => openComposer("record", selectedMember.id)} onPreview={(id) => { setPreviewCircleId(id); setOverlay("circlePreview"); }}/>}
         </PullToRefresh></div>
         <nav className="bottom-nav" aria-label="主要导航">
@@ -894,15 +944,22 @@ export default function Home() {
     {overlay === "post" && selectedPost && <PostSheet key={`${selectedPost.id}:${postContactRequested}`} post={selectedPost} contactRequested={postContactRequested} onProfile={() => selectedPost.memberId && openProfile(selectedPost.memberId)} onShare={() => openPostShare(selectedPost.id)} onNotice={flash} onClose={() => setOverlay(null)}/>}
     {overlay === "notifications" && <NotificationsSheet notifications={db.notifications} onClose={() => { setOverlay(null); if (db.unreadNotifications > 0) void markNotificationsRead(); }} onOpen={openNotification}/>}
     {overlay === "circleSettings" && <CircleSettingsSheet circle={activeCircle} onClose={() => setOverlay(null)} onSaved={syncAfterWrite} onNotice={flash}/>}
-    {overlay === "editProfile" && <EditProfileSheet member={memberById(currentMemberId)} onClose={() => setOverlay(null)} onSaved={syncAfterWrite} onNotice={flash}/>}
+    {overlay === "editProfile" && <EditProfileSheet member={memberById(currentMemberId)} email={db.session.email ?? null} phone={db.session.phone ?? null} onClose={() => setOverlay(null)} onSaved={syncAfterWrite} onNotice={flash}/>}
+    {emailBindOpen && <Modal onClose={dismissEmailBind} label="绑定邮箱"><SheetHeading eyebrow="账号" title="绑定邮箱" color="cream"/><BindEmail variant="prompt" onBound={async (merged) => { dismissEmailBind(); await onEmailBound(merged); }} onSkip={dismissEmailBind}/></Modal>}
     {toast && <div className="toast" role="status">{toast}</div>}
   </main></AvatarNavigation.Provider>;
 }
 
 // Shown while the signed-in user belongs to no circle yet: fill in the profile,
 // then either create a circle or join an open one.
-function AccountStartView({ member, openCircles, pendingCircles, onSaved, onJoin, onWithdraw, onCreate, onLogout }: { member: Member; openCircles: DiscoverableCircle[]; pendingCircles: DiscoverableCircle[]; onSaved: () => Promise<void>; onJoin: (circle: DiscoverableCircle) => Promise<boolean>; onWithdraw: (circle: DiscoverableCircle) => Promise<void>; onCreate: () => void; onLogout: () => void }) {
+function AccountStartView({ member, askBind = false, onEmailBound, openCircles, pendingCircles, onSaved, onJoin, onWithdraw, onCreate, onLogout }: { member: Member; askBind?: boolean; onEmailBound?: (merged: boolean) => Promise<void>; openCircles: DiscoverableCircle[]; pendingCircles: DiscoverableCircle[]; onSaved: () => Promise<void>; onJoin: (circle: DiscoverableCircle) => Promise<boolean>; onWithdraw: (circle: DiscoverableCircle) => Promise<void>; onCreate: () => void; onLogout: () => void }) {
   const [name,setName]=useState(member.hasNickname === false ? "" : member.name);
+  const [bindSkipped, setBindSkipped] = useState(false);
+  useEffect(() => {
+    const forced = new URLSearchParams(window.location.search).get("bind_email") === "1";
+    if (forced) { setBindSkipped(false); return; }
+    if (sessionStorage.getItem("flow-email-bind-start-dismissed") === member.id) setBindSkipped(true);
+  }, [member.id]);
   const [bio,setBio]=useState(member.bio);
   const [wechat,setWechat]=useState(member.wechat);
   const [gender,setGender]=useState<Member["gender"]>(member.gender ?? null);
@@ -948,6 +1005,7 @@ function AccountStartView({ member, openCircles, pendingCircles, onSaved, onJoin
     </div>
     {error&&<p className="account-error">{error}</p>}
     <button className="primary-button" disabled={saving} onClick={saveProfile}>{saving?"正在保存…":saved?"已保存 ✓":"保存档案"}</button>
+    {askBind && !bindSkipped && onEmailBound && <BindEmail variant="prompt" onBound={onEmailBound} onSkip={() => { sessionStorage.setItem("flow-email-bind-start-dismissed", member.id); setBindSkipped(true); }}/>}
     <div className="account-next"><button className="secondary-button" onClick={onCreate}>创建第一个圈子</button></div>
     {pendingCircles.length > 0 && <div className="open-circle-list pending-list">
       <b>正在等待放行</b>
@@ -1328,7 +1386,7 @@ function formatTime(iso: string): string {
 
 type OtherCircle = { id: string; name: string; icon: string | null; description: string | null; currency: string | null; member_count: number; joining: string; membership_status: string | null };
 
-function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, onNotice, onChanged, onSelectCircle, onShareItem, onPublish, onEdit, onShare, onRecord, onPreview, onProfile, onTabChange }: { onProfile: (id?: string) => void; onTabChange: (tab: ProfileTab) => void; member: Member; circleScopeId: string; initialTab: ProfileTab; focusRecordId?: string | null; onNotice: (message: string) => void; onChanged: () => Promise<void>; onSelectCircle: (id: string) => void; onShareItem: (source: "listing" | "transaction" | "card", id: string) => void; onPublish: (intent: ComposerType) => void; onEdit: () => void; onShare: () => void; onRecord: () => void; onPreview: (id: string) => void }) {
+function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, onNotice, onChanged, onSelectCircle, onShareItem, onPublish, onEdit, onShare, onRecord, onPreview, onProfile, onTabChange, email, phone }: { onProfile: (id?: string) => void; onTabChange: (tab: ProfileTab) => void; member: Member; email?: string | null; phone?: string | null; circleScopeId: string; initialTab: ProfileTab; focusRecordId?: string | null; onNotice: (message: string) => void; onChanged: () => Promise<void>; onSelectCircle: (id: string) => void; onShareItem: (source: "listing" | "transaction" | "card", id: string) => void; onPublish: (intent: ComposerType) => void; onEdit: () => void; onShare: () => void; onRecord: () => void; onPreview: (id: string) => void }) {
   // Opened from a notification: bring that one record into view.
   const focusedRef = useRef<HTMLElement | null>(null);
   useEffect(() => { focusedRef.current?.scrollIntoView({ block: "center" }); }, [focusRecordId]);
@@ -1491,6 +1549,8 @@ function ProfilePage({ member, circleScopeId, initialTab, focusRecordId, onNotic
     <header className="profile-page-heading"><Character member={member}/><div className="profile-page-identity"><small>{isSelf ? "我的档案" : "成员档案"} · {member.handle}<GenderSymbol member={member}/></small><h2>{member.name}<GenderSymbol member={member}/></h2><p>{member.bio || "还没有填写介绍"}</p></div>
       {isSelf ? <div className="profile-page-actions"><button onClick={onEdit}>编辑资料</button><button onClick={onShare}>分享档案</button></div> : <div className="profile-page-actions"><button onClick={onRecord} disabled={visibleCircleIds.length === 0}>记一笔</button>{contact ? <div className="contact-reveal"><span>联系方式</span><b>{member.wechat || "未填写"}</b>{member.wechat && <button onClick={async () => { try { await navigator.clipboard.writeText(member.wechat); onNotice("已复制"); } catch { onNotice("复制失败，请手动复制"); } }}>复制</button>}</div> : <button onClick={() => setContact(true)}>联系{member.name}</button>}</div>}
     </header>
+    {isSelf && email !== undefined && <div className="detail-meta profile-identifiers"><div><span>手机号</span><b>{phone || "未绑定"}</b></div><div><span>邮箱</span><b>{email || "未绑定"}</b></div></div>}
+    {isSelf && email === null && <BindEmail variant="inline" onBound={async (merged) => { await onChanged(); onNotice(merged ? "已合并到当前账号" : "邮箱已绑定"); }}/>}
     {isSelf && <div className="profile-publish-actions"><button onClick={() => onPublish("need")}><Pill color="pink">我想要</Pill><b>发布需要 ＋</b></button><button onClick={() => onPublish("offer")}><Pill color="green">我可以给</Pill><b>发布提供 ＋</b></button></div>}
     <p className="profile-scope-note">{scopedCircleId ? `${activeCircle?.name} · ${isSelf ? "我的圈内内容" : "你们共同圈子的可见内容"}` : isSelf ? "我在全部圈子的内容" : "你们共同圈子的可见内容"}</p>
     {activeAccount && activeCircle && <div className="profile-numbers"><div><b>{activeAccount.balance > 0 ? "+" : ""}{activeAccount.balance} {activeCircle.currency}</b><span>{activeCircle.name} · 社区货币余额</span></div><div><b>{activeAccount.received}</b><span>在本圈给出过</span></div><div><b>{activeAccount.given}</b><span>在本圈收到过</span></div></div>}
@@ -2004,7 +2064,7 @@ function CircleSettingsSheet({ circle, onClose, onSaved, onNotice }: { circle: C
 }
 
 // The editable part of a loop account: display name, bio and contact handle.
-function EditProfileSheet({ member, onClose, onSaved, onNotice }: { member: Member; onClose: () => void; onSaved: () => Promise<void>; onNotice: (message: string) => void }) {
+function EditProfileSheet({ member, email, phone, onClose, onSaved, onNotice }: { member: Member; email: string | null; phone: string | null; onClose: () => void; onSaved: () => Promise<void>; onNotice: (message: string) => void }) {
   const [name, setName] = useState(member.hasNickname === false ? "" : member.name);
   const [bio, setBio] = useState(member.bio);
   const [wechat, setWechat] = useState(member.wechat);
@@ -2043,7 +2103,8 @@ function EditProfileSheet({ member, onClose, onSaved, onNotice }: { member: Memb
       <label><span>微信号（同圈可见，选填）</span><input value={wechat} maxLength={60} onChange={(e) => setWechat(e.target.value)} placeholder="填写微信号，方便同圈成员联系"/><small>目前通过微信联系，没有站内私信。账号 ID 不是微信号。</small></label>
     </div>
     <AvatarWorkshop value={avatar} seed={member.id} onChange={setAvatar} renderAvatar={(value) => <Character variant={value} color={member.color}/>}/>
-    <div className="detail-meta"><div><span>用户名</span><b>{member.handle}</b></div><div><span>地址</span><b>{member.address ? `${member.address.slice(0, 10)}…` : "—"}</b></div></div>
+    <div className="detail-meta"><div><span>用户名</span><b>{member.handle}</b></div><div><span>手机号</span><b>{phone || "未绑定"}</b></div><div><span>邮箱</span><b>{email || "未绑定"}</b></div><div><span>地址</span><b>{member.address ? `${member.address.slice(0, 10)}…` : "—"}</b></div></div>
+    {!email && <BindEmail variant="inline" onBound={async (merged) => { await onSaved(); onNotice(merged ? "已合并到当前账号" : "邮箱已绑定"); }}/>}
     {error && <p className="account-error" role="alert">{error}</p>}
     <div className="sheet-actions"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={saving} onClick={save}>{saving ? "正在保存…" : "保存"}</button></div>
   </Modal>;

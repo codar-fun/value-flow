@@ -725,6 +725,9 @@ h1, h2, h3, p { overflow-wrap: anywhere; }
 .join-card button.text-link { width: auto; margin: 6px auto 0; padding: 10px 12px; border: 0; border-radius: 0; background: transparent; box-shadow: none; font-size: 13px; font-weight: 800; text-decoration: underline; }
 .join-card button.text-link:disabled { color: var(--muted); cursor: not-allowed; opacity: 1; text-decoration: none; }
 .join-card > p + button, .join-card > p + a { margin-top: 20px; }
+.join-card .join-juluo { width: 100%; margin-top: 16px; }
+.bind-email { margin: 18px 0; display: grid; gap: 10px; }
+.bind-email .account-hint { margin: 0; color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1.5; }
 /* Feedback fixes: keep the existing theme; style only new controls and exports. */
 .return-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 16px; background: var(--paper); position: sticky; top: 0; z-index: 12; border-bottom: 1px solid var(--ink); }
 .return-bar button { padding: 6px 8px; background: transparent; border: 0; font-weight: 700; }

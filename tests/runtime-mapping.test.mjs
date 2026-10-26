@@ -110,6 +110,19 @@ test("record notifications carry the record they are about", () => {
   assert.equal(db.notifications.find((n) => n.id === "n2").recordId, "");
 });
 
+test("email and phone stay on the signed-in session and off every member", () => {
+  const me = { ...account(ME, "a"), email: "me@example.com", phone: "+8613800138000" };
+  const other = { ...account(OTHER, "b"), email: "other@example.com", phone: "+8613900139000" };
+  const db = toAppDatabase(bootstrap({ user: me, members: [me, other] }));
+
+  assert.equal(db.session.email, "me@example.com");
+  assert.equal(db.session.phone, "+8613800138000");
+  for (const member of db.members) {
+    assert.equal(member.email, undefined);
+    assert.equal(member.phone, undefined);
+  }
+});
+
 const { PARTNER_SHAPES, PARTNER_EXPRESSIONS, PARTNER_COLORS, encodePartnerAvatar, parsePartnerAvatar, randomPartnerAvatar } = await import("../app/lib/partner-avatar.ts");
 const { isAvatarVariant } = await import("../app/lib/avatar.ts");
 test("partner avatars roundtrip current combinations and reject retired shapes and versions", () => {
