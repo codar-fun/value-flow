@@ -361,7 +361,7 @@ function LoginGate({ onDone }: { onDone: () => Promise<void> }) {
     <p>{step === "email" ? "输入邮箱，我们会发送一次性验证码。" : step === "code" ? `验证码已发送到 ${email}` : "昵称会显示在圈子里，账号 ID 用来准确查找。"}</p>
     {error && <p className="account-error" role="alert">{error}</p>}
     {step === "email" && <>
-      <button className="secondary-button join-juluo" type="button" onClick={() => { window.location.href = "/auth/juluo"; }}>用聚落账号登录</button>
+      <button className="secondary-button join-juluo" type="button" onClick={() => { window.location.href = "/auth/juluo"; }}>用 sola 账号登录</button>
       <div className="account-form"><label><span>邮箱</span><input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email"/></label></div>
       <button className="primary-button" onClick={requestCode} disabled={busy}>{busy ? "发送中…" : "发送验证码"}</button>
     </>}
